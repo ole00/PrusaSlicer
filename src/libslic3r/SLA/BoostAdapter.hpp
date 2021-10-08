@@ -40,55 +40,50 @@ template<std::size_t d> struct access<Slic3r::Point, d > {
 
 // For Vec2d ///////////////////////////////////////////////////////////////////
 
-template<> struct tag<Slic3r::Vec2d> {
+template<class T, int D> struct tag<Slic3r::Vec<D, T>> {
     using type = point_tag;
 };
 
-template<> struct coordinate_type<Slic3r::Vec2d> {
-    using type = double;
+template<class T, int D> struct coordinate_type<Slic3r::Vec<D, T>> {
+    using type = T;
 };
 
-template<> struct coordinate_system<Slic3r::Vec2d> {
+template<class T, int D> struct coordinate_system<Slic3r::Vec<D, T>> {
     using type = cs::cartesian;
 };
 
-template<> struct dimension<Slic3r::Vec2d>: boost::mpl::int_<2> {};
+template<class T, int D> struct dimension<Slic3r::Vec<D, T>>: boost::mpl::int_<D> {};
 
-template<std::size_t d> struct access<Slic3r::Vec2d, d > {
-    static inline double get(Slic3r::Vec2d const& a) {
-        return a(d);
-    }
-
-    static inline void set(Slic3r::Vec2d& a, double const& value) {
-        a(d) = value;
-    }
+template<class T, int D, std::size_t d> struct access<Slic3r::Vec<D, T>, d> {
+    static constexpr T get(Slic3r::Vec<D, T> const& a) { return a(int(d)); }
+    static void set(Slic3r::Vec<D, T>& a, T const& value) { a(int(d)) = value; }
 };
 
 // For Vec3d ///////////////////////////////////////////////////////////////////
 
-template<> struct tag<Slic3r::Vec3d> {
-    using type = point_tag;
-};
+//template<> struct tag<Slic3r::Vec3d> {
+//    using type = point_tag;
+//};
 
-template<> struct coordinate_type<Slic3r::Vec3d> {
-    using type = double;
-};
+//template<> struct coordinate_type<Slic3r::Vec3d> {
+//    using type = double;
+//};
 
-template<> struct coordinate_system<Slic3r::Vec3d> {
-    using type = cs::cartesian;
-};
+//template<> struct coordinate_system<Slic3r::Vec3d> {
+//    using type = cs::cartesian;
+//};
 
-template<> struct dimension<Slic3r::Vec3d>: boost::mpl::int_<3> {};
+//template<> struct dimension<Slic3r::Vec3d>: boost::mpl::int_<3> {};
 
-template<std::size_t d> struct access<Slic3r::Vec3d, d > {
-    static inline double get(Slic3r::Vec3d const& a) {
-        return a(d);
-    }
+//template<std::size_t d> struct access<Slic3r::Vec3d, d > {
+//    static inline double get(Slic3r::Vec3d const& a) {
+//        return a(d);
+//    }
 
-    static inline void set(Slic3r::Vec3d& a, double const& value) {
-        a(d) = value;
-    }
-};
+//    static inline void set(Slic3r::Vec3d& a, double const& value) {
+//        a(d) = value;
+//    }
+//};
 
 /* ************************************************************************** */
 /* Box concept adaptation *************************************************** */

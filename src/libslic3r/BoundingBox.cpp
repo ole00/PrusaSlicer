@@ -235,7 +235,7 @@ void BoundingBox::align_to_grid(const coord_t cell_size)
 
 BoundingBoxf3 BoundingBoxf3::transformed(const Transform3d& matrix) const
 {
-    typedef Eigen::Matrix<double, 3, 8, Eigen::DontAlign> Vertices;
+    using Vertices = Mat<3, 8, double> ;
 
     Vertices src_vertices;
     src_vertices(0, 0) = min(0); src_vertices(1, 0) = min(1); src_vertices(2, 0) = min(2);

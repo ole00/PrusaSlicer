@@ -2273,7 +2273,7 @@ void check_model_ids_validity(const Model &model)
 void check_model_ids_equal(const Model &model1, const Model &model2)
 {
     // Verify whether the IDs of model1 and model match.
-    assert(model1.objects.size() == model2.objects.size());
+//    assert(model1.objects.size() == model2.objects.size());
     for (size_t idx_model = 0; idx_model < model2.objects.size(); ++ idx_model) {
         const ModelObject &model_object1 = *model1.objects[idx_model];
         const ModelObject &model_object2 = *  model2.objects[idx_model];

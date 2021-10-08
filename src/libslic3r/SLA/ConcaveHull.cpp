@@ -9,10 +9,6 @@
 namespace Slic3r {
 namespace sla {
 
-inline Vec3d to_vec3(const Vec2crd &v2) { return {double(v2(X)), double(v2(Y)), 0.}; }
-inline Vec3d to_vec3(const Vec2d &v2) { return {v2(X), v2(Y), 0.}; }
-inline Vec2crd to_vec2(const Vec3d &v3) { return {coord_t(v3(X)), coord_t(v3(Y))}; }
-
 Point ConcaveHull::centroid(const Points &pp)
 {
     Point c;
@@ -63,7 +59,7 @@ void ConcaveHull::add_connector_rectangles(const Points &centroids,
 
     PointIndex ctrindex;
     unsigned  idx = 0;
-    for(const Point &ct : centroids) ctrindex.insert(to_vec3(ct), idx++);
+    for(const Point &ct : centroids) ctrindex.insert(to_3d(ct).cast<double>(), idx++);
 
     m_polys.reserve(m_polys.size() + centroids.size());
 
@@ -77,12 +73,12 @@ void ConcaveHull::add_connector_rectangles(const Points &centroids,
 
         const Point &ct = centroids[idx];
 
-        std::vector<PointIndexEl> result = ctrindex.nearest(to_vec3(ct), 2);
+        std::vector<PointIndexEl> result = ctrindex.nearest(to_3d(ct).cast<double>(), 2);
 
         double dist = max_dist;
         for (const PointIndexEl &el : result)
             if (el.second != idx) {
-                dist = Line(to_vec2(el.first), ct).length();
+                dist = Line(to_2d(el.first).cast<coord_t>(), ct).length();
                 break;
             }
 

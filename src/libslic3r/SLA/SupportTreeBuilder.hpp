@@ -51,12 +51,11 @@ namespace sla {
  */
 
 template<class Vec> double distance(const Vec& p) {
-    return std::sqrt(p.transpose() * p);
+    return p.norm();
 }
 
 template<class Vec> double distance(const Vec& pp1, const Vec& pp2) {
-    auto p = pp2 - pp1;
-    return distance(p);
+    return norm(pp1, pp2);
 }
 
 const Vec3d DOWN = {0.0, 0.0, -1.0};
@@ -270,7 +269,7 @@ public:
         return m_heads.back();
     }
     
-    template<class...Args> long add_pillar(long headid, double length)
+    long add_pillar(long headid, double length)
     {
         std::lock_guard<Mutex> lk(m_mutex);
         if (m_pillars.capacity() < m_heads.size())

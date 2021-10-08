@@ -7,7 +7,8 @@
 #include <libslic3r/SLA/SupportTree.hpp>
 #include <libslic3r/SLA/SpatIndex.hpp>
 #include <libslic3r/SLA/SupportTreeBuilder.hpp>
-#include <libslic3r/SLA/SupportTreeBuildsteps.hpp>
+//#include <libslic3r/SLA/SupportTreeBuildsteps.hpp>
+#include <libslic3r/SLA/SupportTreeVanek.hpp>
 
 #include <libslic3r/MTUtils.hpp>
 #include <libslic3r/ClipperUtils.hpp>
@@ -85,7 +86,8 @@ SupportTree::UPtr SupportTree::create(const SupportableMesh &sm,
     
     if (sm.cfg.enabled) {
         // Execute takes care about the ground_level
-        SupportTreeBuildsteps::execute(*builder, sm);
+//        SupportTreeBuildsteps::execute(*builder, sm);
+        build_vanek_tree(*builder, sm);
         builder->merge_and_cleanup();   // clean metadata, leave only the meshes.
     } else {
         // If a pad gets added later, it will be in the right Z level

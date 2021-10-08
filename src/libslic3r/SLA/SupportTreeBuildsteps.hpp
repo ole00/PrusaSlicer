@@ -14,41 +14,28 @@ namespace sla {
 // The minimum distance for two support points to remain valid.
 const double /*constexpr*/ D_SP = 0.1;
 
-enum { // For indexing Eigen vectors as v(X), v(Y), v(Z) instead of numbers
-    X, Y, Z
-};
-
-inline Vec2d to_vec2(const Vec3d &v3) { return {v3(X), v3(Y)}; }
-
-inline std::pair<double, double> dir_to_spheric(const Vec3d &n, double norm = 1.)
+template <class T>
+std::pair<T, T> dir_to_spheric(const Vec<3, T> &n, T norm = 1.)
 {
-    double z       = n.z();
-    double r       = norm;
-    double polar   = std::acos(z / r);
-    double azimuth = std::atan2(n(1), n(0));
+    T z       = n.z();
+    T r       = norm;
+    T polar   = std::acos(z / r);
+    T azimuth = std::atan2(n(1), n(0));
     return {polar, azimuth};
 }
 
-inline Vec3d spheric_to_dir(double polar, double azimuth)
+template <class T = double>
+Vec<3, T> spheric_to_dir(double polar, double azimuth)
 {
-    return {std::cos(azimuth) * std::sin(polar),
-            std::sin(azimuth) * std::sin(polar), std::cos(polar)};
+    return {T(std::cos(azimuth) * std::sin(polar)),
+            T(std::sin(azimuth) * std::sin(polar)), T(std::cos(polar))};
 }
 
-inline Vec3d spheric_to_dir(const std::tuple<double, double> &v)
+template <class T = double, class Pair>
+Vec<3, T> spheric_to_dir(const Pair &v)
 {
-    auto [plr, azm] = v;
-    return spheric_to_dir(plr, azm);
-}
-
-inline Vec3d spheric_to_dir(const std::pair<double, double> &v)
-{
-    return spheric_to_dir(v.first, v.second);
-}
-
-inline Vec3d spheric_to_dir(const std::array<double, 2> &v)
-{
-    return spheric_to_dir(v[0], v[1]);
+    double plr = std::get<0>(v), azm = std::get<1>(v);
+    return spheric_to_dir<T>(plr, azm);
 }
 
 // Give points on a 3D ring with given center, radius and orientation

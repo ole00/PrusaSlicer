@@ -47,9 +47,9 @@ SupportTreeBuildsteps::SupportTreeBuildsteps(SupportTreeBuilder &   builder,
 
     long i = 0;
     for (const SupportPoint &sp : m_support_pts) {
-        m_points.row(i)(X) = double(sp.pos(X));
-        m_points.row(i)(Y) = double(sp.pos(Y));
-        m_points.row(i)(Z) = double(sp.pos(Z));
+        m_points.row(i).x() = double(sp.pos.x());
+        m_points.row(i).y() = double(sp.pos.y());
+        m_points.row(i).z() = double(sp.pos.z());
         ++i;
     }
 }
@@ -306,35 +306,35 @@ bool SupportTreeBuildsteps::interconnect(const Pillar &pillar,
     Vec3d elower = nextpillar.endpoint();
 
     double zmin = m_builder.ground_level + m_cfg.base_height_mm;
-    eupper(Z) = std::max(eupper(Z), zmin);
-    elower(Z) = std::max(elower(Z), zmin);
+    eupper.z() = std::max(eupper.z(), zmin);
+    elower.z() = std::max(elower.z(), zmin);
 
     // The usable length of both pillars should be positive
-    if(slower(Z) - elower(Z) < 0) return false;
-    if(supper(Z) - eupper(Z) < 0) return false;
+    if(slower.z() - elower.z() < 0) return false;
+    if(supper.z() - eupper.z() < 0) return false;
 
-    double pillar_dist = distance(Vec2d{slower(X), slower(Y)},
-                                  Vec2d{supper(X), supper(Y)});
+    double pillar_dist = distance(Vec2d{slower.x(), slower.y()},
+                                  Vec2d{supper.x(), supper.y()});
     double bridge_distance = pillar_dist / std::cos(-m_cfg.bridge_slope);
     double zstep = pillar_dist * std::tan(-m_cfg.bridge_slope);
 
     if(pillar_dist < 2 * m_cfg.head_back_radius_mm ||
         pillar_dist > m_cfg.max_pillar_link_distance_mm) return false;
 
-    if(supper(Z) < slower(Z)) supper.swap(slower);
-    if(eupper(Z) < elower(Z)) eupper.swap(elower);
+    if(supper.z() < slower.z()) supper.swap(slower);
+    if(eupper.z() < elower.z()) eupper.swap(elower);
 
     double startz = 0, endz = 0;
 
-    startz = slower(Z) - zstep < supper(Z) ? slower(Z) - zstep : slower(Z);
-    endz = eupper(Z) + zstep > elower(Z) ? eupper(Z) + zstep : eupper(Z);
+    startz = slower.z() - zstep < supper.z() ? slower.z() - zstep : slower.z();
+    endz = eupper.z() + zstep > elower.z() ? eupper.z() + zstep : eupper.z();
 
-    if(slower(Z) - eupper(Z) < std::abs(zstep)) {
+    if(slower.z() - eupper.z() < std::abs(zstep)) {
         // no space for even one cross
 
         // Get max available space
-        startz = std::min(supper(Z), slower(Z) - zstep);
-        endz = std::max(eupper(Z) + zstep, elower(Z));
+        startz = std::min(supper.z(), slower.z() - zstep);
+        endz = std::max(eupper.z() + zstep, elower.z());
 
         // Align to center
         double available_dist = (startz - endz);
@@ -352,10 +352,10 @@ bool SupportTreeBuildsteps::interconnect(const Pillar &pillar,
     // They will be swapped in every iteration thus the zig-zag pattern.
     // According to a config parameter, a second bridge may be added which
     // results in a cross connection between the pillars.
-    Vec3d sj = supper, ej = slower; sj(Z) = startz; ej(Z) = sj(Z) + zstep;
+    Vec3d sj = supper, ej = slower; sj.z() = startz; ej.z() = sj.z() + zstep;
 
     // TODO: This is a workaround to not have a faulty last bridge
-    while(ej(Z) >= eupper(Z) /*endz*/) {
+    while(ej.z() >= eupper.z() /*endz*/) {
         if(bridge_mesh_distance(sj, dirv(sj, ej), pillar.r) >= bridge_distance)
         {
             m_builder.add_crossbridge(sj, ej, pillar.r);
@@ -364,9 +364,9 @@ bool SupportTreeBuildsteps::interconnect(const Pillar &pillar,
 
         // double bridging: (crosses)
         if(docrosses) {
-            Vec3d sjback(ej(X), ej(Y), sj(Z));
-            Vec3d ejback(sj(X), sj(Y), ej(Z));
-            if (sjback(Z) <= slower(Z) && ejback(Z) >= eupper(Z) &&
+            Vec3d sjback(ej.x(), ej.y(), sj.z());
+            Vec3d ejback(sj.x(), sj.y(), ej.z());
+            if (sjback.z() <= slower.z() && ejback.z() >= eupper.z() &&
                 bridge_mesh_distance(sjback, dirv(sjback, ejback),
                                       pillar.r) >= bridge_distance) {
                 // need to check collision for the cross stick
@@ -376,7 +376,7 @@ bool SupportTreeBuildsteps::interconnect(const Pillar &pillar,
         }
 
         sj.swap(ej);
-        ej(Z) = sj(Z) + zstep;
+        ej.z() = sj.z() + zstep;
     }
 
     return was_connected;
@@ -400,7 +400,7 @@ bool SupportTreeBuildsteps::connect_to_nearpillar(const Head &head,
     double d2d = distance(to_2d(headjp), to_2d(nearjp_u));
     double d3d = distance(headjp, nearjp_u);
 
-    double hdiff = nearjp_u(Z) - headjp(Z);
+    double hdiff = nearjp_u.z() - headjp.z();
     double slope = std::atan2(hdiff, d2d);
 
     Vec3d bridgestart = headjp;
@@ -414,15 +414,15 @@ bool SupportTreeBuildsteps::connect_to_nearpillar(const Head &head,
         // not feasible to connect the two head junctions. We have to search
         // for a suitable touch point.
 
-        double Zdown = headjp(Z) + d2d * std::tan(-max_slope);
-        Vec3d touchjp = bridgeend; touchjp(Z) = Zdown;
+        double Zdown = headjp.z() + d2d * std::tan(-max_slope);
+        Vec3d touchjp = bridgeend; touchjp.z() = Zdown;
         double D = distance(headjp, touchjp);
-        zdiff = Zdown - nearjp_u(Z);
+        zdiff = Zdown - nearjp_u.z();
 
         if(zdiff > 0) {
             Zdown -= zdiff;
-            bridgestart(Z) -= zdiff;
-            touchjp(Z) = Zdown;
+            bridgestart.z() -= zdiff;
+            touchjp.z() = Zdown;
 
             double t = bridge_mesh_distance(headjp, DOWN, r);
 
@@ -431,8 +431,8 @@ bool SupportTreeBuildsteps::connect_to_nearpillar(const Head &head,
             if(t < zdiff) return false;
         }
 
-        if(Zdown <= nearjp_u(Z) && Zdown >= nearjp_l(Z) && D < max_len)
-            bridgeend(Z) = Zdown;
+        if(Zdown <= nearjp_u.z() && Zdown >= nearjp_l.z() && D < max_len)
+            bridgeend.z() = Zdown;
         else
             return false;
     }
@@ -440,7 +440,7 @@ bool SupportTreeBuildsteps::connect_to_nearpillar(const Head &head,
     // There will be a minimum distance from the ground where the
     // bridge is allowed to connect. This is an empiric value.
     double minz = m_builder.ground_level + 4 * head.r_back_mm;
-    if(bridgeend(Z) < minz) return false;
+    if(bridgeend.z() < minz) return false;
 
     double t = bridge_mesh_distance(bridgestart, dirv(bridgestart, bridgeend), r);
 
@@ -667,7 +667,7 @@ void SupportTreeBuildsteps::filter()
     filterfn = [this, &nmls, &heads, &filterfn](unsigned fidx, size_t i, double back_r) {
         m_thr();
 
-        auto n = nmls.row(Eigen::Index(i));
+        Vec3d n = nmls.row(Eigen::Index(i));
 
         // for all normals we generate the spherical coordinates and
         // saturate the polar angle to 45 degrees from the bottom then
@@ -740,7 +740,7 @@ void SupportTreeBuildsteps::filter()
             }
         }
 
-        if (t.distance() > w && hp(Z) + w * nn(Z) >= m_builder.ground_level) {
+        if (t.distance() > w && hp.z() + w * nn.z() >= m_builder.ground_level) {
             Head &h = heads[fidx];
             h.id = fidx; h.dir = nn; h.width_mm = lmin; h.r_back_mm = back_r;
         } else if (back_r > m_cfg.head_fallback_radius_mm) {
@@ -841,7 +841,7 @@ void SupportTreeBuildsteps::routing_to_ground()
             cl, [&points](size_t idx) { return points.row(long(idx)); },
             [thr](const Vec3d &p1, const Vec3d &p2) {
                 thr();
-                return distance(Vec2d(p1(X), p1(Y)), Vec2d(p2(X), p2(Y)));
+                return distance(Vec2d(p1.x(), p1.y()), Vec2d(p2.x(), p2.y()));
             });
 
         assert(lcid >= 0);
@@ -880,7 +880,7 @@ void SupportTreeBuildsteps::routing_to_ground()
                 if (!connect_to_nearpillar(sidehead, centerpillarID) &&
                     !search_pillar_and_connect(sidehead)) {
                     Vec3d pstart = sidehead.junction_point();
-                    // Vec3d pend = Vec3d{pstart(X), pstart(Y), gndlvl};
+                    // Vec3d pend = Vec3d{pstart.x(), pstart.y(), gndlvl};
                     // Could not find a pillar, create one
                     create_ground_pillar(pstart, sidehead.dir, sidehead.r_back_mm, sidehead.id);
                 }
@@ -956,7 +956,7 @@ bool SupportTreeBuildsteps::connect_to_model_body(Head &head)
     }
 
     Vec3d hjp = head.junction_point();
-    double zangle = std::asin(hit.direction()(Z));
+    double zangle = std::asin(hit.direction().z());
     zangle = std::max(zangle, PI/4);
     double h = std::sin(zangle) * head.fullwidth();
 
@@ -967,7 +967,7 @@ bool SupportTreeBuildsteps::connect_to_model_body(Head &head)
     if (head.r_back_mm < m_cfg.head_back_radius_mm) h = std::max(h, 0.);
     else if (h <= 0.) return false;
 
-    Vec3d endp{hjp(X), hjp(Y), hjp(Z) - hit.distance() + h};
+    Vec3d endp{hjp.x(), hjp.y(), hjp.z() - hit.distance() + h};
     auto center_hit = m_mesh.query_ray_hit(hjp, DOWN);
 
     double hitdiff = center_hit.distance() - hit.distance();
@@ -1010,7 +1010,7 @@ bool SupportTreeBuildsteps::search_pillar_and_connect(const Head &source)
         // (this may happen as the clustering is not perfect)
         // than we will bridge to this closer pillar
 
-        Vec3d qp(querypt(X), querypt(Y), m_builder.ground_level);
+        Vec3d qp(querypt.x(), querypt.y(), m_builder.ground_level);
         auto qres = spindex.nearest(qp, 1);
         if(qres.empty()) break;
 
@@ -1189,7 +1189,7 @@ void SupportTreeBuildsteps::interconnect_pillars()
         Vec3d  pillarsp = pillar().startpoint();
 
         // temp value for starting point detection
-        Vec3d sp(pillarsp(X), pillarsp(Y), pillarsp(Z) - r);
+        Vec3d sp(pillarsp.x(), pillarsp.y(), pillarsp.z() - r);
 
         // A vector of bool for placement feasbility
         std::vector<bool>  canplace(needpillars, false);
@@ -1206,14 +1206,14 @@ void SupportTreeBuildsteps::interconnect_pillars()
             {
                 double a = alpha + n * PI / 3;
                 Vec3d  s = sp;
-                s(X) += std::cos(a) * r;
-                s(Y) += std::sin(a) * r;
+                s.x() += std::cos(a) * r;
+                s.y() += std::sin(a) * r;
                 spts[n] = s;
 
                 // Check the path vertically down
                 Vec3d check_from = s + Vec3d{0., 0., pillar().r};
                 auto hr = bridge_mesh_intersect(check_from, DOWN, pillar().r);
-                Vec3d gndsp{s(X), s(Y), gnd};
+                Vec3d gndsp{s.x(), s.y(), gnd};
 
                 // If the path is clear, check for pillar base collisions
                 canplace[n] = std::isinf(hr.distance()) &&
@@ -1249,7 +1249,7 @@ void SupportTreeBuildsteps::interconnect_pillars()
                     if (distance(pillarsp, s) < t)
                         m_builder.add_bridge(pillarsp, s, pillar().r);
 
-                    if (pillar().endpoint()(Z) > m_builder.ground_level + pillar().r)
+                    if (pillar().endpoint().z() > m_builder.ground_level + pillar().r)
                         m_builder.add_junction(pillar().endpoint(), pillar().r);
 
                     newpills.emplace_back(pp.id);

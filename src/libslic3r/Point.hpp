@@ -30,21 +30,21 @@ template<int N, class T> using Vec = Mat<N, 1, T>;
 
 // Eigen types, to replace the Slic3r's own types in the future.
 // Vector types with a fixed point coordinate base type.
-using Vec2crd = Eigen::Matrix<coord_t,  2, 1, Eigen::DontAlign>;
-using Vec3crd = Eigen::Matrix<coord_t,  3, 1, Eigen::DontAlign>;
-using Vec2i   = Eigen::Matrix<int,      2, 1, Eigen::DontAlign>;
-using Vec3i   = Eigen::Matrix<int,      3, 1, Eigen::DontAlign>;
-using Vec4i   = Eigen::Matrix<int,      4, 1, Eigen::DontAlign>;
-using Vec2i32 = Eigen::Matrix<int32_t,  2, 1, Eigen::DontAlign>;
-using Vec2i64 = Eigen::Matrix<int64_t,  2, 1, Eigen::DontAlign>;
-using Vec3i32 = Eigen::Matrix<int32_t,  3, 1, Eigen::DontAlign>;
-using Vec3i64 = Eigen::Matrix<int64_t,  3, 1, Eigen::DontAlign>;
+using Vec2crd = Vec<2, coord_t>;
+using Vec3crd = Vec<3, coord_t>;
+using Vec2i   = Vec<2, int>;
+using Vec3i   = Vec<3, int>;
+using Vec4i   = Vec<4, int>;
+using Vec2i32 = Vec<2, int32_t>;
+using Vec2i64 = Vec<2, int64_t>;
+using Vec3i32 = Vec<3, int32_t>;
+using Vec3i64 = Vec<3, int64_t>;
 
 // Vector types with a double coordinate base type.
-using Vec2f   = Eigen::Matrix<float,    2, 1, Eigen::DontAlign>;
-using Vec3f   = Eigen::Matrix<float,    3, 1, Eigen::DontAlign>;
-using Vec2d   = Eigen::Matrix<double,   2, 1, Eigen::DontAlign>;
-using Vec3d   = Eigen::Matrix<double,   3, 1, Eigen::DontAlign>;
+using Vec2f   = Vec<2, float>;
+using Vec3f   = Vec<3, float>;
+using Vec2d   = Vec<2, double>;
+using Vec3d   = Vec<3, double>;
 
 using Points         = std::vector<Point>;
 using PointPtrs      = std::vector<Point*>;
@@ -54,20 +54,20 @@ using Pointfs        = std::vector<Vec2d>;
 using Vec2ds         = std::vector<Vec2d>;
 using Pointf3s       = std::vector<Vec3d>;
 
-using Matrix2f       = Eigen::Matrix<float,  2, 2, Eigen::DontAlign>;
-using Matrix2d       = Eigen::Matrix<double, 2, 2, Eigen::DontAlign>;
-using Matrix3f       = Eigen::Matrix<float,  3, 3, Eigen::DontAlign>;
-using Matrix3d       = Eigen::Matrix<double, 3, 3, Eigen::DontAlign>;
-using Matrix4f       = Eigen::Matrix<float,  4, 4, Eigen::DontAlign>;
-using Matrix4d       = Eigen::Matrix<double, 4, 4, Eigen::DontAlign>;
+using Matrix2f       = Mat<2, 2, float>;
+using Matrix2d       = Mat<2, 2, double>;
+using Matrix3f       = Mat<3, 3, float>;
+using Matrix3d       = Mat<3, 3, double>;
+using Matrix4f       = Mat<4, 4, float>;
+using Matrix4d       = Mat<4, 4, double>;
 
 template<int N, class T>
-using Transform = Eigen::Transform<float, N, Eigen::Affine, Eigen::DontAlign>;
+using Transform = Eigen::Transform<T, N, Eigen::Affine, Eigen::DontAlign>;
 
-using Transform2f    = Eigen::Transform<float,  2, Eigen::Affine, Eigen::DontAlign>;
-using Transform2d    = Eigen::Transform<double, 2, Eigen::Affine, Eigen::DontAlign>;
-using Transform3f    = Eigen::Transform<float,  3, Eigen::Affine, Eigen::DontAlign>;
-using Transform3d    = Eigen::Transform<double, 3, Eigen::Affine, Eigen::DontAlign>;
+using Transform2f = Transform<2, float>;
+using Transform2d = Transform<2, double>;
+using Transform3f = Transform<3, float>;
+using Transform3d = Transform<3, double>;
 
 // I don't know why Eigen::Transform::Identity() return a const object...
 template<int N, class T> Transform<N, T> identity() { return Transform<N, T>::Identity(); }
@@ -96,10 +96,12 @@ template<typename T, int Options>
 inline Eigen::Matrix<T, 2, 1, Eigen::DontAlign> perp(const Eigen::MatrixBase<Eigen::Matrix<T, 2, 1, Options>> &v) { return Eigen::Matrix<T, 2, 1, Eigen::DontAlign>(- v.y(), v.x()); }
 
 template<class T, int N, int Options>
-Eigen::Matrix<T, 2, 1, Eigen::DontAlign> to_2d(const Eigen::MatrixBase<Eigen::Matrix<T, N, 1, Options>> &ptN) { return { ptN.x(), ptN.y() }; }
+Vec<2, T> to_2d(const Eigen::MatrixBase<Eigen::Matrix<T, N, 1, Options>> &ptN) { return { ptN.x(), ptN.y() }; }
 
 template<class T, int Options>
-Eigen::Matrix<T, 3, 1, Eigen::DontAlign> to_3d(const Eigen::MatrixBase<Eigen::Matrix<T, 2, 1, Options>> & pt, const T z) { return { pt.x(), pt.y(), z }; }
+Vec<3, T> to_3d(const Eigen::MatrixBase<Eigen::Matrix<T, 2, 1, Options>> & pt, const T z = {}) { return { pt.x(), pt.y(), z }; }
+
+template<class T, int N> double norm(const Vec<N, T> &a, const Vec<N, T> &b) { return (a - b).norm(); }
 
 inline Vec2d   unscale(coord_t x, coord_t y) { return Vec2d(unscale<double>(x), unscale<double>(y)); }
 inline Vec2d   unscale(const Vec2crd &pt) { return Vec2d(unscale<double>(pt.x()), unscale<double>(pt.y())); }
@@ -108,15 +110,11 @@ inline Vec3d   unscale(coord_t x, coord_t y, coord_t z) { return Vec3d(unscale<d
 inline Vec3d   unscale(const Vec3crd &pt) { return Vec3d(unscale<double>(pt.x()), unscale<double>(pt.y()), unscale<double>(pt.z())); }
 inline Vec3d   unscale(const Vec3d   &pt) { return Vec3d(unscale<double>(pt.x()), unscale<double>(pt.y()), unscale<double>(pt.z())); }
 
-inline std::string to_string(const Vec2crd &pt) { return std::string("[") + float_to_string_decimal_point(pt.x()) + ", " + float_to_string_decimal_point(pt.y()) + "]"; }
-inline std::string to_string(const Vec2d   &pt) { return std::string("[") + float_to_string_decimal_point(pt.x()) + ", " + float_to_string_decimal_point(pt.y()) + "]"; }
-inline std::string to_string(const Vec3crd &pt) { return std::string("[") + float_to_string_decimal_point(pt.x()) + ", " + float_to_string_decimal_point(pt.y()) + ", " + float_to_string_decimal_point(pt.z()) + "]"; }
-inline std::string to_string(const Vec3d   &pt) { return std::string("[") + float_to_string_decimal_point(pt.x()) + ", " + float_to_string_decimal_point(pt.y()) + ", " + float_to_string_decimal_point(pt.z()) + "]"; }
+template<class T> std::string to_string(const Vec<2, T> &pt) { return std::string("[") + float_to_string_decimal_point(pt.x()) + ", " + float_to_string_decimal_point(pt.y()) + "]"; }
+template<class T> std::string to_string(const Vec<3, T> &pt) { return std::string("[") + float_to_string_decimal_point(pt.x()) + ", " + float_to_string_decimal_point(pt.y()) + ", " + float_to_string_decimal_point(pt.z()) + "]"; }
 
 std::vector<Vec3f> transform(const std::vector<Vec3f>& points, const Transform3f& t);
 Pointf3s transform(const Pointf3s& points, const Transform3d& t);
-
-template<int N, class T> using Vec = Eigen::Matrix<T,  N, 1, Eigen::DontAlign, N, 1>;
 
 class Point : public Vec2crd
 {

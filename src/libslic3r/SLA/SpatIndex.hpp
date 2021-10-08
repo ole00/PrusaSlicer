@@ -12,10 +12,11 @@
 namespace Slic3r {
 namespace sla {
 
-typedef Eigen::Matrix<double,   3, 1, Eigen::DontAlign> Vec3d;
-using PointIndexEl = std::pair<Vec3d, unsigned>;
+template<class Scalar>
+using PointIndexEl_ = std::pair<Vec<3, Scalar>, unsigned>;
 
-class PointIndex {
+template <class Scalar>
+class PointIndex_ {
     class Impl;
 
     // We use Pimpl because it takes a long time to compile boost headers which
@@ -23,36 +24,69 @@ class PointIndex {
     std::unique_ptr<Impl> m_impl;
 public:
 
-    PointIndex();
-    ~PointIndex();
+    using Element = PointIndexEl_<Scalar>;
+    using Pt = Vec<3, Scalar>;
 
-    PointIndex(const PointIndex&);
-    PointIndex(PointIndex&&);
-    PointIndex& operator=(const PointIndex&);
-    PointIndex& operator=(PointIndex&&);
+    PointIndex_();
+    ~PointIndex_();
 
-    void insert(const PointIndexEl&);
-    bool remove(const PointIndexEl&);
+    PointIndex_(const PointIndex_&);
+    PointIndex_(PointIndex_&&);
+    PointIndex_& operator=(const PointIndex_ &cpy);
+    PointIndex_& operator=(PointIndex_ &&);
 
-    inline void insert(const Vec3d& v, unsigned idx)
+//    PointIndex_(const PointIndex_ &cpy) : m_impl(new Impl(*cpy.m_impl)) {}
+//    PointIndex_(PointIndex_ &&cpy) : m_impl(std::move(cpy.m_impl)) {}
+//    PointIndex_& operator=(const PointIndex_ &cpy)
+//    {
+//        m_impl.reset(new Impl(*cpy.m_impl));
+//        return *this;
+//    }
+//    PointIndex_& operator=(PointIndex_ &&cpy)
+//    {
+//        m_impl.swap(cpy.m_impl);
+//        return *this;
+//    }
+
+    void insert(const Element &el);
+//    void insert(const Element &el) { m_impl->m_store.insert(el); }
+
+    bool remove(const Element &el);
+//    bool remove(const Element &el) { return m_impl->m_store.remove(el) == 1; }
+
+    void insert(const Pt& v, unsigned idx)
     {
         insert(std::make_pair(v, unsigned(idx)));
     }
 
-    std::vector<PointIndexEl> query(std::function<bool(const PointIndexEl&)>) const;
-    std::vector<PointIndexEl> nearest(const Vec3d&, unsigned k) const;
-    std::vector<PointIndexEl> query(const Vec3d &v, unsigned k) const // wrapper
+    std::vector<Element> query(std::function<bool(const Element&)>) const;
+    std::vector<Element> nearest(const Pt  &, unsigned k = 1) const;
+    std::vector<Element> query  (const Pt &v, unsigned k = 1) const // wrapper
     {
         return nearest(v, k);
     }
 
     // For testing
     size_t size() const;
+//    size_t size() const { return m_impl->m_store.size(); }
     bool empty() const { return size() == 0; }
 
-    void foreach(std::function<void(const PointIndexEl& el)> fn);
-    void foreach(std::function<void(const PointIndexEl& el)> fn) const;
+//    template<class Fn>
+//    void foreach(Fn fn) { for(auto& el : m_impl->m_store) fn(el); }
+    void foreach(std::function<void(const Element& el)> fn);
+
+//    template<class Fn>
+//    void foreach(Fn fn) const { for(const auto &el : m_impl->m_store) fn(el); }
+    void foreach(std::function<void(const Element& el)> fn) const;
 };
+
+extern template class PointIndex_<float>;
+extern template class PointIndex_<double>;
+
+using PointIndex = PointIndex_<double>;
+using PointIndexEl = PointIndex::Element;
+using PointfIndex = PointIndex_<float>;
+using PointfIndexEl = PointfIndex::Element;
 
 using BoxIndexEl = std::pair<Slic3r::BoundingBox, unsigned>;
 

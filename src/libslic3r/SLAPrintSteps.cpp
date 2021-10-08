@@ -401,9 +401,9 @@ void SLAPrint::Steps::drill_holes(SLAPrintObject &po)
         AABBTreeIndirect::traverse(
                     tree,
                     AABBTreeIndirect::intersecting(ebb),
-                    [&part_to_drill, &hollowed_mesh](size_t faceid)
+                    [&part_to_drill, &hollowed_mesh](const auto& node)
         {
-            part_to_drill.indices.emplace_back(hollowed_mesh.its.indices[faceid]);
+            part_to_drill.indices.emplace_back(hollowed_mesh.its.indices[node.idx]);
         });
 
         auto cgal_meshpart = MeshBoolean::cgal::triangle_mesh_to_cgal(
@@ -653,6 +653,7 @@ void SLAPrint::Steps::support_tree(SLAPrintObject &po)
     }
 
     po.m_supportdata->cfg = make_support_cfg(po.m_config);
+    po.m_supportdata->cfg.bedpoly = ExPolygon{get_bed_shape(m_print->printer_config())};
 //    po.m_supportdata->emesh.load_holes(po.transformed_drainhole_points());
 
     // scaling for the sub operations

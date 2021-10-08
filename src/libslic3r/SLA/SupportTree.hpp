@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <memory>
-#include <Eigen/Geometry>
+#include <libslic3r/ExPolygon.hpp>
 
 #include <libslic3r/SLA/Pad.hpp>
 #include <libslic3r/SLA/IndexedMesh.hpp>
@@ -16,8 +16,6 @@ class TriangleMesh;
 class Model;
 class ModelInstance;
 class ModelObject;
-class Polygon;
-class ExPolygon;
 
 using Polygons = std::vector<Polygon>;
 using ExPolygons = std::vector<ExPolygon>;
@@ -79,6 +77,9 @@ struct SupportTreeConfig
     // The elevation in Z direction upwards. This is the space between the pad
     // and the model object's bounding box bottom.
     double object_elevation_mm = 10;
+
+    // Polygon of the bed shape.
+    ExPolygon bedpoly;
     
     // The shortest distance between a pillar base perimeter from the model
     // body. This is only useful when elevation is set to zero.

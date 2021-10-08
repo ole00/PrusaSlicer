@@ -269,6 +269,8 @@ set(SLIC3R_SOURCES
     SLA/SupportTreeMesher.cpp
     SLA/SupportTreeBuildsteps.hpp
     SLA/SupportTreeBuildsteps.cpp
+    SLA/SupportTreeVanek.hpp
+    SLA/SupportTreeVanek.cpp
     SLA/SupportTreeBuilder.cpp
     SLA/Concurrency.hpp
     SLA/SupportTree.hpp
