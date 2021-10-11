@@ -25,8 +25,7 @@ public:
     };
 
     KDTreeIndirect(CoordinateFn coordinate) : coordinate(coordinate) {}
-    KDTreeIndirect(CoordinateFn coordinate, std::vector<size_t>   indices) : coordinate(coordinate) { this->build(std::move(indices)); }
-    KDTreeIndirect(CoordinateFn coordinate, std::vector<size_t> &&indices) : coordinate(coordinate) { this->build(std::move(indices)); }
+    KDTreeIndirect(CoordinateFn coordinate, std::vector<size_t> indices) : coordinate(coordinate) { this->build(indices); }
     KDTreeIndirect(CoordinateFn coordinate, size_t num_indices) : coordinate(coordinate) { this->build(num_indices); }
     KDTreeIndirect(KDTreeIndirect &&rhs) : m_nodes(std::move(rhs.m_nodes)), coordinate(std::move(rhs.coordinate)) {}
     KDTreeIndirect& operator=(KDTreeIndirect &&rhs) { m_nodes = std::move(rhs.m_nodes); coordinate = std::move(rhs.coordinate); return *this; }
@@ -38,10 +37,10 @@ public:
         indices.reserve(num_indices);
         for (size_t i = 0; i < num_indices; ++ i)
             indices.emplace_back(i);
-        this->build(std::move(indices));
+        this->build(indices);
     }
 
-    void build(std::vector<size_t> &&indices)
+    void build(std::vector<size_t> &indices)
     {
         if (indices.empty())
             clear();

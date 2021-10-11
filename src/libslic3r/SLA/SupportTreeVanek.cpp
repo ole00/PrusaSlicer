@@ -8,6 +8,7 @@
 
 #include "SLA/SupportTreeBuildsteps.hpp"
 #include "libslic3r/Tesselate.hpp"
+#include "libslic3r/KDTreeIndirect.hpp"
 
 namespace Slic3r { namespace sla { namespace vanektree {
 
@@ -117,11 +118,29 @@ class PointCloud {
     std::vector<Junction> m_junctions, m_meshpoints, m_bedpoints;
 
     const double bridge_slope;
+    const double cos2bridge_slope;
 
     const size_t I1, I2, I3;
 
     std::vector<bool> m_searchable_indices;
     size_t m_reachable_cnt;
+
+    struct CoordFn {
+        const PointCloud *self; CoordFn(PointCloud *s) : self{s} {}
+        float operator()(size_t nodeid, size_t dim) const { return self->get_coord(nodeid)(int(dim)); }
+    };
+    KDTreeIndirect<3, float, CoordFn> m_ktree;
+
+    bool is_outside_support_cone(const Vec3f &supp, const Vec3f &pt)
+    {
+        Vec3f D = (pt - supp);
+        return std::acos(D.z() / D.norm()) < PI - bridge_slope;
+
+//        Vec3d D = (pt - supp).cast<double>();
+//        double dot_sq = -D.z() * std::abs(-D.z());
+
+//        return dot_sq > D.squaredNorm() * cos2bridge_slope;
+    }
 
 public:
     PointCloud(const indexed_triangle_set &M,
@@ -131,11 +150,13 @@ public:
         , m_meshpoints{sample_mesh(M)}
         , m_bedpoints{sample_bed(props.bed_shape(), props.ground_level())}
         , bridge_slope{props.max_slope()}
-        , I1{m_roots.size()}
+        , cos2bridge_slope{std::cos(bridge_slope) * std::abs(std::cos(bridge_slope))}
+        , I1{m_bedpoints.size()}
         , I2{I1 + m_meshpoints.size()}
-        , I3{I2 + m_bedpoints.size()}
+        , I3{I2 + m_roots.size()}
         , m_searchable_indices(I3, true)
         , m_reachable_cnt{I3}
+        , m_ktree{CoordFn{this}, I2} // Only for bed and mesh points
     {
     }
 
@@ -143,9 +164,9 @@ public:
     {
         PtType ret = NONE;
 
-        if (node_id < I1) ret = SUPP;
+        if (node_id < I1) ret = BED;
         else if (node_id < I2) ret = MESH;
-        else if (node_id < I3) ret = BED;
+        else if (node_id < I3) ret = SUPP;
         else if (node_id < I3 + m_junctions.size()) ret = JUNCTION;
 
         return ret;
@@ -154,9 +175,9 @@ public:
     Junction get(size_t node_id) const
     {
         switch(get_type(node_id)) {
-        case SUPP: return m_roots[node_id];
+        case BED: return m_bedpoints[node_id];
         case MESH: return m_meshpoints[node_id - I1];
-        case BED:  return m_bedpoints [node_id - I2];
+        case SUPP:  return m_roots [node_id - I2];
         case JUNCTION: return m_junctions[node_id - I3];
         case NONE: ;
         }
@@ -175,13 +196,10 @@ public:
         case BED: {
             // Points of mesh or bed which are outside of the support cone of
             // 'pos' must be discarded.
-            Vec3f D = get_coord(node) - p;
-            double Ddist = D.norm();
-            double polar = std::acos(D.z() / Ddist);
-            if (polar < PI - bridge_slope)
+            if (is_outside_support_cone(p, get_coord(node)))
                 return std::numeric_limits<double>::infinity();
             else
-                return Ddist;
+                return (get_coord(node) - p).norm();
         }
         case SUPP:
         case JUNCTION:
@@ -212,9 +230,30 @@ public:
 
     template<class Fn> void foreach_reachable(const Vec3f &pos, Fn &&visitor)
     {
+//        size_t closest_anchor = find_closest_point(m_ktree, pos, [this, &pos](size_t id) {
+//            return m_searchable_indices[id] && is_outside_support_cone(pos, get_coord(id));
+//        });
+
+//        if (closest_anchor < I2)
+//            visitor(closest_anchor, get_distance(pos, closest_anchor));
+
         for (size_t i = 0; i < m_searchable_indices.size(); ++i)
-            if (m_searchable_indices[i])
+            if (m_searchable_indices[i] && i )
                 visitor(i, get_distance(pos, i));
+    }
+
+    std::deque<size_t> start_queue() const
+    {
+        std::deque<size_t> ptsqueue(m_roots.size());
+        std::iota(ptsqueue.begin(), ptsqueue.end(), I2);
+
+        auto zcmp = [this](size_t a, size_t b) {
+            return get_coord(a).z() < get_coord(b).z();
+        };
+
+        std::sort(ptsqueue.begin(), ptsqueue.end(), zcmp);
+
+        return ptsqueue;
     }
 };
 
@@ -225,14 +264,10 @@ bool build_tree(const indexed_triangle_set & its,
 {
     PointCloud nodes(its, support_roots, properties);
 
-    std::deque<size_t> ptsqueue(support_roots.size());
-    std::iota(ptsqueue.begin(), ptsqueue.end(), 0);
-
+    std::deque<size_t> ptsqueue = nodes.start_queue();
     auto zcmp = [&nodes](size_t a, size_t b) {
         return nodes.get_coord(a).z() < nodes.get_coord(b).z();
     };
-
-    std::sort(ptsqueue.begin(), ptsqueue.end(), zcmp);
 
     while (!ptsqueue.empty()) {
         size_t node_id = ptsqueue.back();
