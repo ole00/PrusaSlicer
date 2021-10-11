@@ -92,20 +92,23 @@ static ExPolygon make_bed_poly(const indexed_triangle_set &its)
 
 class VanekTreeBuilder: public vanektree::Builder {
     SupportTreeBuilder &m_builder;
-    const SupportTreeConfig  &m_cfg;
+    const SupportableMesh  &m_sm;
 
 public:
-    VanekTreeBuilder(SupportTreeBuilder &builder, const SupportTreeConfig &cfg)
-        : m_builder{builder}, m_cfg{cfg}
+    VanekTreeBuilder(SupportTreeBuilder &builder, const SupportableMesh &sm)
+        : m_builder{builder}, m_sm{sm}
     {}
 
     bool add_bridge(const vanektree::Junction &from,
                     const vanektree::Junction &to) override
     {
-        m_builder.add_diffbridge(from.pos.cast<double>(),
-                                 to.pos.cast<double>(), from.R, to.R);
+        Vec3d fromd = from.pos.cast<double>(), tod = to.pos.cast<double>();
+        auto hit = m_sm.emesh.query_ray_hit(fromd, (tod - fromd).normalized());
 
-        return true;
+        if (!hit.is_hit())
+            m_builder.add_diffbridge(fromd, tod, from.R, to.R);
+
+        return !hit.is_hit();
     }
 
     bool add_junction(const vanektree::Junction &jp) override
@@ -123,8 +126,8 @@ public:
         endp.z()     = m_builder.ground_level;
 
         long pid = m_builder.add_pillar(endp, startp.z() - endp.z(), to.R);
-        m_builder.add_pillar_base(pid, m_cfg.base_height_mm,
-                                  m_cfg.base_radius_mm);
+        m_builder.add_pillar_base(pid, m_sm.cfg.base_height_mm,
+                                  m_sm.cfg.base_radius_mm);
 
         return true;
     }
@@ -135,29 +138,30 @@ public:
         Vec3f  dir        = from.pos - to.pos;
         double availablew = dir.norm();
         Vec3f  dirn       = dir / availablew;
-        double minw       = 2 * m_cfg.head_front_radius_mm + 2 * to.R -
-                      m_cfg.head_penetration_mm;
+        double minw       = 2 * m_sm.cfg.head_front_radius_mm + 2 * to.R -
+                            m_sm.cfg.head_penetration_mm;
 
+        bool ret = true;
         if (availablew > minw) {
-            double w     = std::min(availablew, minw + m_cfg.head_width_mm);
+            double w     = std::min(availablew, minw + m_sm.cfg.head_width_mm);
             Vec3f to_pos = to.pos + (w - to.R) * dirn;
 
             Anchor anchor{to.R,
-                          m_cfg.head_front_radius_mm,
+                          m_sm.cfg.head_front_radius_mm,
                           w - minw,
-                          m_cfg.head_penetration_mm,
+                          m_sm.cfg.head_penetration_mm,
                           dirn.cast<double>(),
                           to.pos.cast<double>()};
 
-            m_builder.add_anchor(anchor);
-            add_bridge(from, {to_pos, to.R});
+            ret = add_bridge(from, {to_pos, to.R});
+            if (ret) m_builder.add_anchor(anchor);
         } else {
             Vec3f to_pos = to.pos + 2 * to.R * dirn;
-            add_bridge(from, {to_pos, to.R});
-            add_junction(to);
+            ret = add_bridge(from, {to_pos, to.R});
+            if (ret) add_junction(to);
         }
 
-        return true;
+        return ret;
     }
 
     bool report_unroutable(size_t root_id) override
@@ -186,7 +190,7 @@ SupportTree::UPtr SupportTree::create(const SupportableMesh &sm,
             roots.emplace_back(h.junction_point().cast<float>(), h.r_back_mm);
 
         auto &its = *sm.emesh.get_triangle_mesh();
-        vanektree::build_tree(its, roots, VanekTreeBuilder {*builder, sm.cfg},
+        vanektree::build_tree(its, roots, VanekTreeBuilder {*builder, sm},
                               vanektree::Properties{}.bed_shape({make_bed_poly(its)})
                               .ground_level(builder->ground_level)
                               .max_slope(sm.cfg.bridge_slope)

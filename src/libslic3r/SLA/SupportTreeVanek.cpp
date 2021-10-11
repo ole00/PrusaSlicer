@@ -47,7 +47,7 @@ static void to_eigen_mesh(const indexed_triangle_set &its,
 }
 
 static std::vector<Junction> sample_mesh(const indexed_triangle_set &its,
-                                      double                      radius = 1.)
+                                      double                      radius = .5)
 {
     std::vector<Junction> ret;
 
@@ -133,13 +133,10 @@ class PointCloud {
 
     bool is_outside_support_cone(const Vec3f &supp, const Vec3f &pt)
     {
-        Vec3f D = (pt - supp);
-        return std::acos(D.z() / D.norm()) < PI - bridge_slope;
+        Vec3d D = (pt - supp).cast<double>();
+        double dot_sq = -D.z() * std::abs(-D.z());
 
-//        Vec3d D = (pt - supp).cast<double>();
-//        double dot_sq = -D.z() * std::abs(-D.z());
-
-//        return dot_sq > D.squaredNorm() * cos2bridge_slope;
+        return dot_sq < D.squaredNorm() * cos2bridge_slope;
     }
 
 public:
@@ -230,14 +227,14 @@ public:
 
     template<class Fn> void foreach_reachable(const Vec3f &pos, Fn &&visitor)
     {
-//        size_t closest_anchor = find_closest_point(m_ktree, pos, [this, &pos](size_t id) {
-//            return m_searchable_indices[id] && is_outside_support_cone(pos, get_coord(id));
-//        });
+        size_t closest_anchor = find_closest_point(m_ktree, pos, [this, &pos](size_t id) {
+            return m_searchable_indices[id] && !is_outside_support_cone(pos, get_coord(id));
+        });
 
-//        if (closest_anchor < I2)
-//            visitor(closest_anchor, get_distance(pos, closest_anchor));
+        if (closest_anchor < I2)
+            visitor(closest_anchor, get_distance(pos, closest_anchor));
 
-        for (size_t i = 0; i < m_searchable_indices.size(); ++i)
+        for (size_t i = I2; i < m_searchable_indices.size(); ++i)
             if (m_searchable_indices[i] && i )
                 visitor(i, get_distance(pos, i));
     }
@@ -280,7 +277,8 @@ bool build_tree(const indexed_triangle_set & its,
         auto distances = reserve_vector<NodeDistance>(nodes.reachable_count());
 
         nodes.foreach_reachable(node.pos, [&distances](size_t id, double distance) {
-            distances.emplace_back(NodeDistance{id, distance});
+            if (!std::isinf(distance))
+                distances.emplace_back(NodeDistance{id, distance});
         });
 
         std::sort(distances.begin(), distances.end(), [](auto &a, auto &b){
@@ -292,49 +290,55 @@ bool build_tree(const indexed_triangle_set & its,
             continue;
         }
 
-        size_t closest_node_id = distances.front().node_id;
-        Junction closest_node = nodes.get(closest_node_id);
+        auto it = distances.begin();
+        bool routed = false;
+        while(it != distances.end() && !routed) {
+            size_t closest_node_id = it->node_id;
+            Junction closest_node = nodes.get(closest_node_id);
 
-        auto type = nodes.get_type(distances.front().node_id);
-        closest_node.R = node.R;
+            auto type = nodes.get_type(closest_node_id);
+            closest_node.R = node.R;
 
-        switch (type) {
-        case BED: {
-            builder.add_ground_bridge(node, closest_node);
-            break;
-        }
-        case MESH: {
-            builder.add_mesh_bridge(node, closest_node);
-            break;
-        }
-        case SUPP:
-        case JUNCTION: {
-            auto mergept = find_merge_pt(node.pos, closest_node.pos, properties.max_slope());
-            if (!mergept) continue;
+            switch (type) {
+            case BED: {
+                routed = builder.add_ground_bridge(node, closest_node);
+                break;
+            }
+            case MESH: {
+                routed = builder.add_mesh_bridge(node, closest_node);
+                break;
+            }
+            case SUPP:
+            case JUNCTION: {
+                auto mergept = find_merge_pt(node.pos, closest_node.pos, properties.max_slope());
+                if (!mergept) continue;
 
-            Junction mergenode{*mergept, node.R};
+                Junction mergenode{*mergept, node.R};
 
-            if ((*mergept - closest_node.pos).norm() > EPSILON) {
-                size_t new_idx = nodes.insert_junction({*mergept, node.R});
-                auto it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), new_idx, zcmp);
-                ptsqueue.insert(it, new_idx);
+                if ((*mergept - closest_node.pos).norm() > EPSILON) {
+                    size_t new_idx = nodes.insert_junction({*mergept, node.R});
+                    auto it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), new_idx, zcmp);
+                    ptsqueue.insert(it, new_idx);
 
-                // Remove the connected support point from the queue
-                it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), closest_node_id, zcmp);
-                if (it != ptsqueue.end()) {
-                    ptsqueue.erase(it);
+                    // Remove the connected support point from the queue
+                    it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), closest_node_id, zcmp);
+                    if (it != ptsqueue.end()) {
+                        ptsqueue.erase(it);
+                    }
+
+                    nodes.remove_node(closest_node_id);
+                    builder.add_bridge(closest_node, mergenode);
                 }
 
-                nodes.remove_node(closest_node_id);
-                builder.add_bridge(closest_node, mergenode);
+                builder.add_bridge(node, mergenode);
+                builder.add_junction(mergenode);
+                routed = true;
+                break;
+            }
+            case NONE: ;
             }
 
-            builder.add_bridge(node, mergenode);
-            builder.add_junction(mergenode);
-
-            break;
-        }
-        case NONE: ;
+            ++it;
         }
     }
 
