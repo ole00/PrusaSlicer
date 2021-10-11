@@ -5,13 +5,12 @@
 #include <deque>
 
 #include <igl/random_points_on_mesh.h>
-#include "boost/log/trivial.hpp"
 
 #include "SLA/SpatIndex.hpp"
 #include "SLA/SupportTreeBuildsteps.hpp"
 #include "libslic3r/Tesselate.hpp"
 
-namespace Slic3r { namespace sla {
+namespace Slic3r { namespace sla { namespace vanektree {
 
 static std::optional<Vec3f> find_merge_pt(const Vec3f &A,
                                           const Vec3f &B,
@@ -34,7 +33,9 @@ static std::optional<Vec3f> find_merge_pt(const Vec3f &A,
     return t1 > 0. && t2 > 0. ? A + t1 * Da : std::optional<Vec3f>{};
 }
 
-static void to_eigen_mesh(const indexed_triangle_set &its, Eigen::MatrixXd &V, Eigen::MatrixXi &F)
+static void to_eigen_mesh(const indexed_triangle_set &its,
+                          Eigen::MatrixXd &           V,
+                          Eigen::MatrixXi &           F)
 {
     V.resize(its.vertices.size(), 3);
     F.resize(its.indices.size(), 3);
@@ -45,10 +46,10 @@ static void to_eigen_mesh(const indexed_triangle_set &its, Eigen::MatrixXd &V, E
         V.row(i) = its.vertices[i].cast<double>();
 }
 
-static std::vector<Vec3f> sample_mesh(const indexed_triangle_set &its,
+static std::vector<Junction> sample_mesh(const indexed_triangle_set &its,
                                       double                      radius = 1.)
 {
-    std::vector<Vec3f> ret;
+    std::vector<Junction> ret;
 
     double surface_area = 0.;
     for (const Vec3i &face : its.indices) {
@@ -81,23 +82,11 @@ static std::vector<Vec3f> sample_mesh(const indexed_triangle_set &its,
     return ret;
 }
 
-static ExPolygon make_bed_poly(const indexed_triangle_set &its)
-{
-    auto bb = bounding_box(its);
-
-    BoundingBox bbcrd{scaled(to_2d(bb.min)), scaled(to_2d(bb.max))};
-    bbcrd.offset(scaled(10.));
-    Point min = bbcrd.min, max = bbcrd.max;
-    ExPolygon ret = {{min.x(), min.y()}, {max.x(), min.y()}, {max.x(), max.y()}, {min.x(), max.y()}};
-
-    return ret;
-}
-
-static std::vector<Vec3f> sample_bed(const ExPolygon &bed, float z)
+static std::vector<Junction> sample_bed(const ExPolygons &bed, float z)
 {
     std::vector<Vec3f> ret;
 
-    auto triangles = triangulate_expolygon_3d(bed, z);
+    auto triangles = triangulate_expolygons_3d(bed, z);
     indexed_triangle_set its;
     its.vertices.reserve(triangles.size());
 
@@ -122,55 +111,38 @@ inline double merge_distance(const Vec3f &a, const Vec3f &b, double bridge_slope
     return ret;
 };
 
-std::vector<Vec3f> copy_support_points(const SupportPoints &pts)
+bool build_tree(const indexed_triangle_set & its,
+                const std::vector<Junction> &support_roots,
+                Builder &                    builder,
+                const Properties &           properties)
 {
-    auto ret = reserve_vector<Vec3f>(pts.size());
-    for (const auto &p : pts)
-        ret.emplace_back(p.pos);
-
-    return ret;
-}
-
-std::vector<Vec3f> get_head_junctions(const SupportTreeBuilder &builder)
-{
-    auto ret = reserve_vector<Vec3f>(builder.heads().size());
-    for (const auto &h : builder.heads())
-        ret.emplace_back(h.junction_point().cast<float>());
-
-    return ret;
-}
-
-bool build_vanek_tree(SupportTreeBuilder &builder, const SupportableMesh &sm)
-{
-    builder.ground_level = sm.emesh.ground_level() - sm.cfg.object_elevation_mm;
-
-    SupportTreeBuildsteps buildsteps{builder, sm};
-
-    // Do just the filtering step, it will also create the pinheads.
-    buildsteps.filter();
-
     enum PtType { SUPP, MESH, BED, JUNCTION, NONE };
 
     struct PointCloud {
-        std::vector<Vec3f> supppts, junctions, meshpts, bedpts;
+        const std::vector<Junction> &supppts;
+        std::vector<Junction> junctions, meshpts, bedpts;
         sla::PointfIndex spatindex;
         const double bridge_slope;
 
         const size_t I1, I2, I3;
 
-        PointCloud(const SupportableMesh &M, const SupportTreeBuilder &builder)
-            : supppts{get_head_junctions(builder)}
-            , meshpts{sample_mesh(*M.emesh.get_triangle_mesh())}
-            , bedpts {sample_bed(make_bed_poly(*M.emesh.get_triangle_mesh()),  M.emesh.ground_level() - M.cfg.object_elevation_mm)}
-            , bridge_slope{M.cfg.bridge_slope}
-            , I1{supppts.size()}, I2{I1 + meshpts.size()}, I3{I2 + bedpts.size()}
+        PointCloud(const indexed_triangle_set &M,
+                   const std::vector<Junction> &support_roots,
+                   const Properties &          props)
+            : supppts{support_roots}
+            , meshpts{sample_mesh(M)}
+            , bedpts{sample_bed(props.bed_shape(), props.ground_level())}
+            , bridge_slope{props.max_slope()}
+            , I1{supppts.size()}
+            , I2{I1 + meshpts.size()}
+            , I3{I2 + bedpts.size()}
         {
             for (size_t i = 0; i < supppts.size(); ++i)
-                spatindex.insert(std::make_pair(supppts[i], i));
+                spatindex.insert(std::make_pair(supppts[i].pos, i));
             for (size_t i = 0; i < meshpts.size(); ++i)
-                spatindex.insert(std::make_pair(meshpts[i], I1 + i));
+                spatindex.insert(std::make_pair(meshpts[i].pos, I1 + i));
             for (size_t i = 0; i < bedpts.size(); ++i)
-                spatindex.insert(std::make_pair(bedpts[i], I2 + i));
+                spatindex.insert(std::make_pair(bedpts[i].pos, I2 + i));
         }
 
         PtType get_type(size_t i) const
@@ -185,7 +157,7 @@ bool build_vanek_tree(SupportTreeBuilder &builder, const SupportableMesh &sm)
             return ret;
         }
 
-        Vec3f get_coord(size_t i) const
+        Junction get(size_t i) const
         {
             switch(get_type(i)) {
             case SUPP: return supppts[i];
@@ -197,6 +169,8 @@ bool build_vanek_tree(SupportTreeBuilder &builder, const SupportableMesh &sm)
 
             return Vec3f{};
         }
+
+        Vec3f get_coord(size_t i) const { return get(i).pos; }
 
         double get_distance(const Vec3f &p, const PointfIndexEl &el)
         {
@@ -224,16 +198,16 @@ bool build_vanek_tree(SupportTreeBuilder &builder, const SupportableMesh &sm)
             return std::numeric_limits<double>::infinity();
         }
 
-        size_t insert_junction(const Vec3f &p)
+        size_t insert_junction(const Junction &p)
         {
             size_t new_idx = I3 + junctions.size();
             junctions.emplace_back(p);
-            spatindex.insert(std::make_pair(p, new_idx));
+            spatindex.insert(std::make_pair(p.pos, new_idx));
             return new_idx;
         }
-    } nodes(sm, builder);
+    } nodes(its, support_roots, properties);
 
-    std::deque<size_t> ptsqueue(sm.pts.size());
+    std::deque<size_t> ptsqueue(support_roots.size());
     std::iota(ptsqueue.begin(), ptsqueue.end(), 0);
 
     auto zcmp = [&nodes](size_t a, size_t b) {
@@ -242,61 +216,54 @@ bool build_vanek_tree(SupportTreeBuilder &builder, const SupportableMesh &sm)
 
     std::sort(ptsqueue.begin(), ptsqueue.end(), zcmp);
 
-    double R = sm.cfg.head_back_radius_mm;
-
     while (!ptsqueue.empty()) {
         size_t idx = ptsqueue.back();
         ptsqueue.pop_back();
 
-        Vec3f posf = nodes.get_coord(idx);
-        nodes.spatindex.remove(std::make_pair(posf, idx));
+        Junction node = nodes.get(idx);
+        nodes.spatindex.remove(std::make_pair(node.pos, idx));
 
-        auto res   = nodes.spatindex.query(posf, nodes.spatindex.size());
+        auto res  = nodes.spatindex.query(node.pos, nodes.spatindex.size());
 
-        std::vector<std::pair<size_t, double>> distances(res.size(), std::make_pair(0, std::nan("")));
+        std::vector<std::pair<size_t, double>>
+            distances(res.size(), std::make_pair(0, std::nan("")));
+
         for (size_t i = 0; i < res.size(); ++i)
-            distances[i] = std::make_pair(i, nodes.get_distance(posf, res[i]));
+            distances[i] = std::make_pair(i, nodes.get_distance(node.pos, res[i]));
 
         std::sort(distances.begin(), distances.end(), [](auto &a, auto &b){
             return a.second < b.second;
         });
 
-        // The first in res is probably the same as the query point.
-//        std::sort(res.begin(), res.end(),
-//                  [&posf, &nodes](const PointfIndexEl &e1, const PointfIndexEl &e2) {
-//                      return nodes.get_distance(posf, e1) < nodes.get_distance(posf, e2);
-//                  });
-
         if (std::isinf(distances[0].second)) {
-            BOOST_LOG_TRIVIAL(error) << "Could not route node " << idx;
+            builder.report_unroutable(idx);
             continue;
         }
 
         PointfIndexEl closest = res[distances[0].first];
+        Junction closest_node = nodes.get(closest.second);
 
         auto type = nodes.get_type(closest.second);
+        closest_node.R = node.R;
 
         switch (type) {
         case BED: {
-            Vec3d posd = posf.cast<double>();
-            Vec3d endp = posd;
-            endp.z() = builder.ground_level;
-            builder.add_pillar(sla::Pillar(endp, posd.z() - endp.z(), R));
+            builder.add_ground_bridge(node, closest_node);
             break;
         }
         case MESH: {
-            builder.add_bridge(posf.cast<double>(), closest.first.cast<double>(), R);
+            builder.add_mesh_bridge(node, closest_node);
             break;
         }
         case SUPP:
         case JUNCTION: {
-            auto mergept = find_merge_pt(posf, closest.first.cast<float>(), sm.cfg.bridge_slope);
+            auto mergept = find_merge_pt(node.pos, closest.first, properties.max_slope());
             if (!mergept) continue;
 
-            Vec3d mergeptd = mergept->cast<double>();
+            Junction mergenode{*mergept, node.R};
 
-            if ((*mergept - closest.first.cast<float>()).norm() > EPSILON) {
-                size_t new_idx = nodes.insert_junction(*mergept);
+            if ((*mergept - closest.first).norm() > EPSILON) {
+                size_t new_idx = nodes.insert_junction({*mergept, node.R});
                 auto it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), new_idx, zcmp);
                 ptsqueue.insert(it, new_idx);
 
@@ -307,17 +274,19 @@ bool build_vanek_tree(SupportTreeBuilder &builder, const SupportableMesh &sm)
                 }
 
                 nodes.spatindex.remove(closest);
-                builder.add_bridge(closest.first.cast<double>(), mergeptd, R);
+                builder.add_bridge(closest_node, mergenode);
             }
-            builder.add_bridge(posf.cast<double>(), mergeptd, R);
-            builder.add_junction(sla::Junction(mergeptd, R));
+
+            builder.add_bridge(node, mergenode);
+            builder.add_junction(mergenode);
+
             break;
         }
         case NONE: ;
         }
     }
 
-    return false;
+    return true;
 }
 
-}} // namespace Slic3r::sla
+}}} // namespace Slic3r::sla::vanektree
