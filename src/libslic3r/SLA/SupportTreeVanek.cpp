@@ -47,7 +47,7 @@ static void to_eigen_mesh(const indexed_triangle_set &its,
 }
 
 static std::vector<Junction> sample_mesh(const indexed_triangle_set &its,
-                                      double                      radius = .5)
+                                         double radius = .1)
 {
     std::vector<Junction> ret;
 
@@ -82,7 +82,9 @@ static std::vector<Junction> sample_mesh(const indexed_triangle_set &its,
     return ret;
 }
 
-static std::vector<Junction> sample_bed(const ExPolygons &bed, float z)
+static std::vector<Junction> sample_bed(const ExPolygons &bed,
+                                        float             z,
+                                        double            radius = 1.)
 {
     std::vector<Vec3f> ret;
 
@@ -98,10 +100,11 @@ static std::vector<Junction> sample_bed(const ExPolygons &bed, float z)
         its.indices.emplace_back(i, i + 1, i + 2);
     }
 
-    return sample_mesh(its);
+    return sample_mesh(its, radius);
 }
 
-inline double merge_distance(const Vec3f &a, const Vec3f &b, double bridge_slope) {
+inline double merge_distance(const Vec3f &a, const Vec3f &b, double bridge_slope)
+{
     auto mergept = find_merge_pt(a, b, bridge_slope);
     float ret = std::numeric_limits<float>::infinity();
 
@@ -127,8 +130,12 @@ class PointCloud {
 
     struct CoordFn {
         const PointCloud *self; CoordFn(PointCloud *s) : self{s} {}
-        float operator()(size_t nodeid, size_t dim) const { return self->get_coord(nodeid)(int(dim)); }
+        float             operator()(size_t nodeid, size_t dim) const
+        {
+            return self->get_coord(nodeid)(int(dim));
+        }
     };
+
     KDTreeIndirect<3, float, CoordFn> m_ktree;
 
     bool is_outside_support_cone(const Vec3f &supp, const Vec3f &pt)
@@ -140,14 +147,17 @@ class PointCloud {
     }
 
 public:
-    PointCloud(const indexed_triangle_set &M,
+    PointCloud(const indexed_triangle_set & M,
                const std::vector<Junction> &support_roots,
-               const Properties &          props)
+               const Properties &           props)
         : m_roots{support_roots}
-        , m_meshpoints{sample_mesh(M)}
-        , m_bedpoints{sample_bed(props.bed_shape(), props.ground_level())}
+        , m_meshpoints{sample_mesh(M, props.sampling_radius())}
+        , m_bedpoints{sample_bed(props.bed_shape(),
+                                 props.ground_level(),
+                                 props.sampling_radius())}
         , bridge_slope{props.max_slope()}
-        , cos2bridge_slope{std::cos(bridge_slope) * std::abs(std::cos(bridge_slope))}
+        , cos2bridge_slope{std::cos(bridge_slope) *
+                           std::abs(std::cos(bridge_slope))}
         , I1{m_bedpoints.size()}
         , I2{I1 + m_meshpoints.size()}
         , I3{I2 + m_roots.size()}
@@ -181,6 +191,8 @@ public:
 
         return Vec3f{};
     }
+
+    size_t get_support_id(size_t node_id) const { return node_id - I2; }
 
     Vec3f get_coord(size_t node_id) const { return get(node_id).pos; }
 
@@ -266,6 +278,15 @@ bool build_tree(const indexed_triangle_set & its,
         return nodes.get_coord(a).z() < nodes.get_coord(b).z();
     };
 
+    auto report_unroutable = [&nodes, &builder] (size_t node_id) {
+        switch(nodes.get_type(node_id)) {
+        case SUPP:
+            builder.report_unroutable_support(nodes.get_support_id(node_id));
+            break;
+        default: builder.report_unroutable_junction(nodes.get(node_id));
+        }
+    };
+
     while (!ptsqueue.empty()) {
         size_t node_id = ptsqueue.back();
         ptsqueue.pop_back();
@@ -285,15 +306,12 @@ bool build_tree(const indexed_triangle_set & its,
             return a.distance < b.distance;
         });
 
-        if (distances.empty() || std::isinf(distances.front().distance)) {
-            builder.report_unroutable(node_id);
-            continue;
-        }
+        if (distances.empty()) { report_unroutable(node_id); continue; }
 
-        auto it = distances.begin();
+        auto closest_it = distances.begin();
         bool routed = false;
-        while(it != distances.end() && !routed) {
-            size_t closest_node_id = it->node_id;
+        while (closest_it != distances.end() && !routed) {
+            size_t closest_node_id = closest_it->node_id;
             Junction closest_node = nodes.get(closest_node_id);
 
             auto type = nodes.get_type(closest_node_id);
@@ -315,7 +333,10 @@ bool build_tree(const indexed_triangle_set & its,
 
                 Junction mergenode{*mergept, node.R};
 
-                if ((*mergept - closest_node.pos).norm() > EPSILON) {
+                routed = builder.add_merger(node, closest_node, mergenode);
+
+                if (routed && (*mergept - closest_node.pos).norm() > EPSILON)
+                {
                     size_t new_idx = nodes.insert_junction({*mergept, node.R});
                     auto it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), new_idx, zcmp);
                     ptsqueue.insert(it, new_idx);
@@ -327,19 +348,17 @@ bool build_tree(const indexed_triangle_set & its,
                     }
 
                     nodes.remove_node(closest_node_id);
-                    builder.add_bridge(closest_node, mergenode);
                 }
-
-                builder.add_bridge(node, mergenode);
-                builder.add_junction(mergenode);
-                routed = true;
                 break;
             }
             case NONE: ;
             }
 
-            ++it;
+            ++closest_it;
         }
+
+        if (!routed)
+            report_unroutable(node_id);
     }
 
     return true;

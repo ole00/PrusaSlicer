@@ -90,6 +90,7 @@ static ExPolygon make_bed_poly(const indexed_triangle_set &its)
     return ret;
 }
 
+
 class VanekTreeBuilder: public vanektree::Builder {
     SupportTreeBuilder &m_builder;
     const SupportableMesh  &m_sm;
@@ -105,17 +106,35 @@ public:
         Vec3d fromd = from.pos.cast<double>(), tod = to.pos.cast<double>();
         auto hit = m_sm.emesh.query_ray_hit(fromd, (tod - fromd).normalized());
 
-        if (!hit.is_hit())
+        bool ret = hit.distance() > (tod - fromd).norm();
+
+        if (ret)
             m_builder.add_diffbridge(fromd, tod, from.R, to.R);
 
-        return !hit.is_hit();
+        return ret;
     }
 
-    bool add_junction(const vanektree::Junction &jp) override
+    bool add_merger(const vanektree::Junction &node,
+                    const vanektree::Junction &closest,
+                    const vanektree::Junction &merge_node) override
     {
-        m_builder.add_junction(jp.pos.cast<double>(), jp.R);
+        Vec3d from1d = node.pos.cast<double>(),
+              from2d = closest.pos.cast<double>(),
+              tod    = merge_node.pos.cast<double>();
 
-        return true;
+        auto hit1 = m_sm.emesh.query_ray_hit(from1d, (tod - from1d).normalized());
+        auto hit2 = m_sm.emesh.query_ray_hit(from2d, (tod - from2d).normalized());
+
+        bool ret = hit1.distance() > (tod - from1d).norm() &&
+                   hit2.distance() > (tod - from2d).norm();
+
+        if (ret) {
+            m_builder.add_diffbridge(from1d, tod, node.R, merge_node.R);
+            m_builder.add_diffbridge(from2d, tod, closest.R, merge_node.R);
+            m_builder.add_junction(tod, merge_node.R);
+        }
+
+        return ret;
     }
 
     bool add_ground_bridge(const vanektree::Junction &from,
@@ -125,11 +144,15 @@ public:
         Vec3d endp   = startp;
         endp.z()     = m_builder.ground_level;
 
-        long pid = m_builder.add_pillar(endp, startp.z() - endp.z(), to.R);
-        m_builder.add_pillar_base(pid, m_sm.cfg.base_height_mm,
-                                  m_sm.cfg.base_radius_mm);
+        auto hit = m_sm.emesh.query_ray_hit(startp, DOWN);
 
-        return true;
+        if (!hit.is_hit()) {
+            long pid = m_builder.add_pillar(endp, startp.z() - endp.z(), to.R);
+            m_builder.add_pillar_base(pid, m_sm.cfg.base_height_mm,
+                                      m_sm.cfg.base_radius_mm);
+        }
+
+        return !hit.is_hit();
     }
 
     bool add_mesh_bridge(const vanektree::Junction &from,
@@ -138,36 +161,44 @@ public:
         Vec3f  dir        = from.pos - to.pos;
         double availablew = dir.norm();
         Vec3f  dirn       = dir / availablew;
+        Vec3d  dirnd      = dirn.cast<double>();
         double minw       = 2 * m_sm.cfg.head_front_radius_mm + 2 * to.R -
                             m_sm.cfg.head_penetration_mm;
 
-        bool ret = true;
-        if (availablew > minw) {
-            double w     = std::min(availablew, minw + m_sm.cfg.head_width_mm);
-            Vec3f to_pos = to.pos + (w - to.R) * dirn;
+        Vec3d fromd = from.pos.cast<double>(), tod = to.pos.cast<double>();
+        auto hit = m_sm.emesh.query_ray_hit(fromd, -dirnd);
+        bool ret = std::abs(hit.distance() - availablew) < 10 * EPSILON;
 
-            Anchor anchor{to.R,
-                          m_sm.cfg.head_front_radius_mm,
-                          w - minw,
-                          m_sm.cfg.head_penetration_mm,
-                          dirn.cast<double>(),
-                          to.pos.cast<double>()};
+        if (ret) {
+            if (availablew > minw) {
+                double w = std::min(availablew, minw + m_sm.cfg.head_width_mm);
 
-            ret = add_bridge(from, {to_pos, to.R});
-            if (ret) m_builder.add_anchor(anchor);
-        } else {
-            Vec3f to_pos = to.pos + 2 * to.R * dirn;
-            ret = add_bridge(from, {to_pos, to.R});
-            if (ret) add_junction(to);
+                Anchor anchor{to.R,     m_sm.cfg.head_front_radius_mm,
+                              w - minw, m_sm.cfg.head_penetration_mm,
+                              dirnd,    to.pos.cast<double>()};
+
+                Vec3d to_pos = tod + (w - to.R) * dirnd;
+                m_builder.add_diffbridge(fromd, to_pos, from.R, to.R);
+                m_builder.add_anchor(anchor);
+            } else {
+                Vec3d to_pos = tod + 2. * to.R * dirnd;
+                m_builder.add_junction(tod, to.R);
+                m_builder.add_diffbridge(fromd, to_pos, from.R, to.R);
+            }
         }
 
         return ret;
     }
 
-    bool report_unroutable(size_t root_id) override
+    void report_unroutable_support(size_t root_id) override
     {
         BOOST_LOG_TRIVIAL(error) << "Cannot route support id " << root_id;
-        return true;
+    }
+
+    void report_unroutable_junction(const vanektree::Junction &j) override
+    {
+        BOOST_LOG_TRIVIAL(error) << "Cannot route junction at " << j.pos.x()
+                                 << " " << j.pos.y() << " " << j.pos.z();
     }
 };
 
