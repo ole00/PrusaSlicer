@@ -138,7 +138,7 @@ public:
     }
 
     bool add_ground_bridge(const vanektree::Junction &from,
-                           const vanektree::Junction &to) override
+                           const vanektree::Junction &/*to*/) override
     {
         Vec3d startp = from.pos.cast<double>();
         Vec3d endp   = startp;
@@ -147,7 +147,7 @@ public:
         auto hit = m_sm.emesh.query_ray_hit(startp, DOWN);
 
         if (!hit.is_hit()) {
-            long pid = m_builder.add_pillar(endp, startp.z() - endp.z(), to.R);
+            long pid = m_builder.add_pillar(endp, startp.z() - endp.z(), from.R);
             m_builder.add_pillar_base(pid, m_sm.cfg.base_height_mm,
                                       m_sm.cfg.base_radius_mm);
         }

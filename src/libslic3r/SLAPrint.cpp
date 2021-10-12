@@ -63,7 +63,7 @@ sla::SupportTreeConfig make_support_cfg(const SLAPrintObjectConfig& c)
         scfg.pillar_connection_mode = sla::PillarConnectionMode::dynamic; break;
     }
     scfg.ground_facing_only = c.support_buildplate_only.getBool();
-    scfg.pillar_widening_factor = c.support_pillar_widening_factor.getFloat();
+    scfg.pillar_widening_factor = 1. + c.support_pillar_widening_factor.getFloat();
     scfg.base_radius_mm = 0.5*c.support_base_diameter.getFloat();
     scfg.base_height_mm = c.support_base_height.getFloat();
     scfg.pillar_base_safety_distance_mm =
@@ -949,6 +949,7 @@ bool SLAPrintObject::invalidate_state_by_config_options(const std::vector<t_conf
             || opt_key == "support_head_penetration"
             || opt_key == "support_head_width"
             || opt_key == "support_pillar_diameter"
+            || opt_key == "support_pillar_widening_factor"
             || opt_key == "support_small_pillar_diameter_percent"
             || opt_key == "support_max_bridges_on_pillar"
             || opt_key == "support_pillar_connection_mode"

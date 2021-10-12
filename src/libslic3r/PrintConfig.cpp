@@ -3527,7 +3527,6 @@ void PrintConfigDef::init_sla_params()
                      "increase the radius. Zero means no increase, one means "
                      "full increase.");
     def->min = 0;
-    def->max = 1;
     def->mode = comExpert;
     def->set_default_value(new ConfigOptionFloat(0.0));
 

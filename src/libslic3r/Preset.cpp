@@ -495,6 +495,7 @@ static std::vector<std::string> s_Preset_sla_print_options {
     "support_head_penetration",
     "support_head_width",
     "support_pillar_diameter",
+    "support_pillar_widening_factor",
     "support_small_pillar_diameter_percent",
     "support_max_bridges_on_pillar",
     "support_pillar_connection_mode",

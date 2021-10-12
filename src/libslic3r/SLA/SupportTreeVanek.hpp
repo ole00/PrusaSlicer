@@ -6,7 +6,7 @@
 namespace Slic3r { namespace sla { namespace vanektree {
 
 class Properties {
-    double m_widening_factor = 1.;
+    double m_widening_factor = 1.1;
     double m_max_slope = PI / 4.;
     double m_ground_level = 0.;
     double m_sampling_radius = .5;
@@ -19,7 +19,6 @@ public:
     Properties& ground_level(double val) noexcept { m_ground_level = val; return *this; }
     Properties& sampling_radius(double val) noexcept { m_sampling_radius = val; return *this; }
     Properties& bed_shape(ExPolygons bed) noexcept { m_bed_shape = std::move(bed); return *this; }
-
 
     double widening_factor() const noexcept { return m_widening_factor; }
     double max_slope() const noexcept { return m_max_slope; }
@@ -35,7 +34,6 @@ struct Junction
     Junction(const Vec3f &p, double r = 0.) : pos{p}, R{r} {}
 };
 
-
 class Builder {
 public:
 
@@ -48,8 +46,6 @@ public:
     virtual void report_unroutable_support (size_t root_id) = 0;
     virtual void report_unroutable_junction(const Junction &j) = 0;
 };
-
-//bool build_tree(SupportTreeBuilder & builder, const SupportableMesh &sm);
 
 bool build_tree(const indexed_triangle_set & its,
                 const std::vector<Junction> &support_roots,

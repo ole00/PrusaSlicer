@@ -247,7 +247,7 @@ public:
             visitor(closest_anchor, get_distance(pos, closest_anchor));
 
         for (size_t i = I2; i < m_searchable_indices.size(); ++i)
-            if (m_searchable_indices[i] && i )
+            if (m_searchable_indices[i])
                 visitor(i, get_distance(pos, i));
     }
 
@@ -287,6 +287,8 @@ bool build_tree(const indexed_triangle_set & its,
         }
     };
 
+    const double WF = properties.widening_factor();
+
     while (!ptsqueue.empty()) {
         size_t node_id = ptsqueue.back();
         ptsqueue.pop_back();
@@ -315,40 +317,45 @@ bool build_tree(const indexed_triangle_set & its,
             Junction closest_node = nodes.get(closest_node_id);
 
             auto type = nodes.get_type(closest_node_id);
-            closest_node.R = node.R;
 
             switch (type) {
             case BED: {
+                closest_node.R = node.R * WF;
                 routed = builder.add_ground_bridge(node, closest_node);
                 break;
             }
             case MESH: {
+                closest_node.R = node.R ;
                 routed = builder.add_mesh_bridge(node, closest_node);
                 break;
             }
             case SUPP:
             case JUNCTION: {
-                auto mergept = find_merge_pt(node.pos, closest_node.pos, properties.max_slope());
-                if (!mergept) continue;
+                auto mergept = find_merge_pt(node.pos, closest_node.pos,
+                                             properties.max_slope());
+                if (mergept) {
+                    if ((*mergept - closest_node.pos).norm() > EPSILON) {
+                        double R = std::max(node.R * WF, closest_node.R * WF);
+                        Junction mergenode{*mergept, R};
 
-                Junction mergenode{*mergept, node.R};
+                        if ((routed = builder.add_merger(node, closest_node, mergenode))) {
+                            size_t new_idx = nodes.insert_junction(mergenode);
+                            auto   it = std::lower_bound(ptsqueue.begin(),
+                                                       ptsqueue.end(),
+                                                       new_idx, zcmp);
+                            ptsqueue.insert(it, new_idx);
 
-                routed = builder.add_merger(node, closest_node, mergenode);
-
-                if (routed && (*mergept - closest_node.pos).norm() > EPSILON)
-                {
-                    size_t new_idx = nodes.insert_junction({*mergept, node.R});
-                    auto it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), new_idx, zcmp);
-                    ptsqueue.insert(it, new_idx);
-
-                    // Remove the connected support point from the queue
-                    it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), closest_node_id, zcmp);
-                    if (it != ptsqueue.end()) {
-                        ptsqueue.erase(it);
-                    }
-
-                    nodes.remove_node(closest_node_id);
+                            // Remove the connected support point from the queue
+                            it = std::lower_bound(ptsqueue.begin(),
+                                                  ptsqueue.end(),
+                                                  closest_node_id, zcmp);
+                            if (it != ptsqueue.end()) { ptsqueue.erase(it); }
+                            nodes.remove_node(closest_node_id);
+                        }
+                    } else
+                        routed = builder.add_bridge(node, closest_node);
                 }
+
                 break;
             }
             case NONE: ;
