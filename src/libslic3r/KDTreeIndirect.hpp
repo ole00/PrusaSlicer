@@ -191,8 +191,8 @@ private:
 
 // Find a closest point using Euclidian metrics.
 // Returns npos if not found.
-template<typename KDTreeIndirectType, typename PointType, typename FilterFn>
-size_t find_closest_point(const KDTreeIndirectType &kdtree, const PointType &point, FilterFn filter)
+template<size_t K, typename KDTreeIndirectType, typename PointType, typename FilterFn>
+std::array<size_t, K> find_closest_points(const KDTreeIndirectType &kdtree, const PointType &point, FilterFn filter)
 {
     using CoordType = typename KDTreeIndirectType::CoordType;
 
@@ -200,10 +200,18 @@ size_t find_closest_point(const KDTreeIndirectType &kdtree, const PointType &poi
         const KDTreeIndirectType   &kdtree;
         const PointType    		   &point;
         const FilterFn				filter;
-        size_t 						min_idx  = KDTreeIndirectType::npos;
-        CoordType					min_dist = std::numeric_limits<CoordType>::max();
 
-        Visitor(const KDTreeIndirectType &kdtree, const PointType &point, FilterFn filter) : kdtree(kdtree), point(point), filter(filter) {}
+        std::array<std::pair<size_t, CoordType>, K> results;
+
+        Visitor(const KDTreeIndirectType &kdtree,
+                const PointType &         point,
+                FilterFn                  filter)
+            : kdtree(kdtree), point(point), filter(filter)
+        {
+            results.fill(
+                std::make_pair(KDTreeIndirectType::npos,
+                               std::numeric_limits<CoordType>::max()));
+        }
         unsigned int operator()(size_t idx, size_t dimension) {
             if (this->filter(idx)) {
                 auto dist = CoordType(0);
@@ -211,17 +219,40 @@ size_t find_closest_point(const KDTreeIndirectType &kdtree, const PointType &poi
                     CoordType d = point[i] - kdtree.coordinate(idx, i);
                     dist += d * d;
                 }
-                if (dist < min_dist) {
-                    min_dist = dist;
-                    min_idx  = idx;
+
+                auto res = std::make_pair(idx, dist);
+                auto it  = std::lower_bound(results.begin(), results.end(),
+                                           res, [](auto &r1, auto &r2) {
+                                               return r1.second < r2.second;
+                                           });
+
+                if (it != results.end()) {
+                    std::rotate(it, std::prev(results.end()), results.end());
+                    *it = res;
                 }
             }
-            return kdtree.descent_mask(point[dimension], min_dist, idx, dimension);
+            return kdtree.descent_mask(point[dimension], results.front().second, idx, dimension);
         }
     } visitor(kdtree, point, filter);
 
     kdtree.visit(visitor);
-    return visitor.min_idx;
+    std::array<size_t, K> ret;
+    for (size_t i = 0; i < K; i ++)
+        ret[i] = visitor.results[i].first;
+
+    return ret;
+}
+
+template<size_t K, typename KDTreeIndirectType, typename PointType>
+std::array<size_t, K> find_closest_points(const KDTreeIndirectType &kdtree, const PointType &point)
+{
+    return find_closest_points<K>(kdtree, point, [](size_t) { return true; });
+}
+
+template<typename KDTreeIndirectType, typename PointType, typename FilterFn>
+size_t find_closest_point(const KDTreeIndirectType &kdtree, const PointType &point, FilterFn filter)
+{
+    return find_closest_points<1>(kdtree, point, filter)[0];
 }
 
 template<typename KDTreeIndirectType, typename PointType>

@@ -151,7 +151,7 @@ public:
                const std::vector<Junction> &support_roots,
                const Properties &           props)
         : m_roots{support_roots}
-        , m_meshpoints{sample_mesh(M, props.sampling_radius())}
+//        , m_meshpoints{sample_mesh(M, props.sampling_radius())}
         , m_bedpoints{sample_bed(props.bed_shape(),
                                  props.ground_level(),
                                  props.sampling_radius())}
@@ -239,12 +239,14 @@ public:
 
     template<class Fn> void foreach_reachable(const Vec3f &pos, Fn &&visitor)
     {
-        size_t closest_anchor = find_closest_point(m_ktree, pos, [this, &pos](size_t id) {
-            return m_searchable_indices[id] && !is_outside_support_cone(pos, get_coord(id));
-        });
+        auto closest_anchors =
+            find_closest_points<3>(m_ktree, pos, [this, &pos](size_t id) {
+                return m_searchable_indices[id] &&
+                       !is_outside_support_cone(pos, get_coord(id));
+            });
 
-        if (closest_anchor < I2)
-            visitor(closest_anchor, get_distance(pos, closest_anchor));
+        for (size_t anchor : closest_anchors)
+            visitor(anchor, get_distance(pos, anchor));
 
         for (size_t i = I2; i < m_searchable_indices.size(); ++i)
             if (m_searchable_indices[i])

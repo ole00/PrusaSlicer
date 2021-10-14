@@ -21,17 +21,6 @@ StopCriteria get_criteria(const SupportTreeConfig &cfg)
         .max_iterations(cfg.optimizer_max_iterations);
 }
 
-template<class C, class Hit = IndexedMesh::hit_result>
-static Hit min_hit(const C &hits)
-{
-    auto mit = std::min_element(hits.begin(), hits.end(),
-                                [](const Hit &h1, const Hit &h2) {
-                                    return h1.distance() < h2.distance();
-                                });
-
-    return *mit;
-}
-
 SupportTreeBuildsteps::SupportTreeBuildsteps(SupportTreeBuilder &   builder,
                                              const SupportableMesh &sm)
     : m_cfg(sm.cfg)
@@ -259,34 +248,35 @@ IndexedMesh::hit_result SupportTreeBuildsteps::pinhead_mesh_intersect(
 IndexedMesh::hit_result SupportTreeBuildsteps::bridge_mesh_intersect(
     const Vec3d &src, const Vec3d &dir, double r, double sd)
 {
-    static const size_t SAMPLES = 8;
-    PointRing<SAMPLES> ring{dir};
+    return sla::bridge_mesh_intersect(ex_seq, m_mesh, src, dir, r, sd);
+//    static const size_t SAMPLES = 8;
+//    PointRing<SAMPLES> ring{dir};
 
-    using Hit = IndexedMesh::hit_result;
+//    using Hit = IndexedMesh::hit_result;
 
-    // Hit results
-    std::array<Hit, SAMPLES> hits;
+//    // Hit results
+//    std::array<Hit, SAMPLES> hits;
 
-    ccr::for_each(size_t(0), hits.size(),
-                 [this, r, src, /*ins_check,*/ &ring, dir, sd, &hits] (size_t i)
-    {
-        Hit &hit = hits[i];
+//    ccr::for_each(size_t(0), hits.size(),
+//                 [this, r, src, /*ins_check,*/ &ring, dir, sd, &hits] (size_t i)
+//    {
+//        Hit &hit = hits[i];
 
-        // Point on the circle on the pin sphere
-        Vec3d p = ring.get(i, src, r + sd);
+//        // Point on the circle on the pin sphere
+//        Vec3d p = ring.get(i, src, r + sd);
 
-        auto hr = m_mesh.query_ray_hit(p + r * dir, dir);
+//        auto hr = m_mesh.query_ray_hit(p + r * dir, dir);
 
-        if(/*ins_check && */hr.is_inside()) {
-            if(hr.distance() > 2 * r + sd) hit = Hit(0.0);
-            else {
-                // re-cast the ray from the outside of the object
-                hit = m_mesh.query_ray_hit(p + (hr.distance() + EPSILON) * dir, dir);
-            }
-        } else hit = hr;
-    });
+//        if(/*ins_check && */hr.is_inside()) {
+//            if(hr.distance() > 2 * r + sd) hit = Hit(0.0);
+//            else {
+//                // re-cast the ray from the outside of the object
+//                hit = m_mesh.query_ray_hit(p + (hr.distance() + EPSILON) * dir, dir);
+//            }
+//        } else hit = hr;
+//    });
 
-    return min_hit(hits);
+//    return min_hit(hits);
 }
 
 bool SupportTreeBuildsteps::interconnect(const Pillar &pillar,

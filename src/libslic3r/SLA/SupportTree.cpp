@@ -104,8 +104,8 @@ public:
                     const vanektree::Junction &to) override
     {
         Vec3d fromd = from.pos.cast<double>(), tod = to.pos.cast<double>();
-        auto hit = m_sm.emesh.query_ray_hit(fromd, (tod - fromd).normalized());
-
+        auto hit = bridge_mesh_intersect(ex_seq, m_sm.emesh, fromd, tod, from.R, to.R, m_sm.cfg.safety_distance_mm);
+//        auto hit = m_sm.emesh.query_ray_hit(fromd, (tod - fromd).normalized());
         bool ret = hit.distance() > (tod - fromd).norm();
 
         if (ret)
@@ -122,8 +122,8 @@ public:
               from2d = closest.pos.cast<double>(),
               tod    = merge_node.pos.cast<double>();
 
-        auto hit1 = m_sm.emesh.query_ray_hit(from1d, (tod - from1d).normalized());
-        auto hit2 = m_sm.emesh.query_ray_hit(from2d, (tod - from2d).normalized());
+        auto hit1 = bridge_mesh_intersect(ex_seq, m_sm.emesh, from1d, tod, node.R, merge_node.R, m_sm.cfg.safety_distance_mm); //m_sm.emesh.query_ray_hit(from1d, (tod - from1d).normalized());
+        auto hit2 = bridge_mesh_intersect(ex_seq, m_sm.emesh, from2d, tod, closest.R, merge_node.R, m_sm.cfg.safety_distance_mm); //m_sm.emesh.query_ray_hit(from2d, (tod - from2d).normalized());
 
         bool ret = hit1.distance() > (tod - from1d).norm() &&
                    hit2.distance() > (tod - from2d).norm();
@@ -144,7 +144,7 @@ public:
         Vec3d endp   = startp;
         endp.z()     = m_builder.ground_level;
 
-        auto hit = m_sm.emesh.query_ray_hit(startp, DOWN);
+        auto hit = bridge_mesh_intersect(ex_seq, m_sm.emesh, startp, DOWN, from.R, m_sm.cfg.safety_distance_mm);//m_sm.emesh.query_ray_hit(startp, DOWN);
 
         if (!hit.is_hit()) {
             long pid = m_builder.add_pillar(endp, startp.z() - endp.z(), from.R);

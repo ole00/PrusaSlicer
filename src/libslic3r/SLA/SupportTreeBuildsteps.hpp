@@ -172,6 +172,104 @@ IntegerOnly<DoubleI> pairhash(I a, I b)
     return (DoubleI(g) << shift) + l;
 }
 
+template<class C, class Hit = IndexedMesh::hit_result>
+Hit min_hit(const C &hits)
+{
+    auto mit = std::min_element(hits.begin(), hits.end(),
+                                [](const Hit &h1, const Hit &h2) {
+                                    return h1.distance() < h2.distance();
+                                });
+
+    return *mit;
+}
+
+template<class Ex>
+IndexedMesh::hit_result bridge_mesh_intersect(Ex &&              ex,
+                                              const IndexedMesh &mesh,
+                                              const Vec3d &      src,
+                                              const Vec3d &      dir,
+                                              double             r,
+                                              double             sd)
+{
+    static const size_t SAMPLES = 8;
+    PointRing<SAMPLES>  ring{dir};
+
+    using Hit = IndexedMesh::hit_result;
+
+    // Hit results
+    std::array<Hit, SAMPLES> hits;
+
+    execution::for_each(
+        ex, size_t(0), hits.size(),
+        [&mesh, r, src, /*ins_check,*/ &ring, dir, sd, &hits](size_t i) {
+            Hit &hit = hits[i];
+
+            // Point on the circle on the pin sphere
+            Vec3d p = ring.get(i, src, r + sd);
+
+            auto hr = mesh.query_ray_hit(p + r * dir, dir);
+
+            if (/*ins_check && */ hr.is_inside()) {
+                if (hr.distance() > 2 * r + sd)
+                    hit = Hit(0.0);
+                else {
+                    // re-cast the ray from the outside of the object
+                    hit = mesh.query_ray_hit(p + (hr.distance() + EPSILON) * dir,
+                                             dir);
+                }
+            } else
+                hit = hr;
+        });
+
+    return min_hit(hits);
+}
+
+template<class Ex>
+IndexedMesh::hit_result bridge_mesh_intersect(Ex &&              ex,
+                                              const IndexedMesh &mesh,
+                                              const Vec3d &      src,
+                                              const Vec3d &      dst,
+                                              double             r_src,
+                                              double             r_dst,
+                                              double             sd)
+{
+    constexpr size_t SAMPLES = 8;
+    Vec3d D = (dst - src);
+    Vec3d dir = D.normalized();
+    PointRing<SAMPLES>  ring{dir};
+
+    using Hit = IndexedMesh::hit_result;
+
+    // Hit results
+    std::array<Hit, SAMPLES> hits;
+
+    execution::for_each(
+        ex, size_t(0), hits.size(),
+        [&mesh, r_src, r_dst, src, dst, /*ins_check,*/ &ring, dir, sd, &hits](size_t i) {
+            Hit &hit = hits[i];
+
+            // Point on the circle on the pin sphere
+            Vec3d p_src = ring.get(i, src, r_src + sd);
+            Vec3d p_dst = ring.get(i, dst, r_dst + sd);
+            Vec3d raydir = (p_dst - p_src).normalized();
+
+            auto hr = mesh.query_ray_hit(p_src + r_src * raydir, raydir);
+
+            if (/*ins_check && */ hr.is_inside()) {
+                if (hr.distance() > 2 * r_src + sd)
+                    hit = Hit(0.0);
+                else {
+                    // re-cast the ray from the outside of the object
+                    hit = mesh.query_ray_hit(p_src + (hr.distance() + EPSILON) * raydir,
+                                             raydir);
+                }
+            } else
+                hit = hr;
+        });
+
+    return min_hit(hits);
+}
+
 class SupportTreeBuildsteps {
     const SupportTreeConfig& m_cfg;
     const IndexedMesh& m_mesh;
