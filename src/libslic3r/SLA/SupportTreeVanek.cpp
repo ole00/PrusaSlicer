@@ -333,25 +333,21 @@ bool build_tree(const indexed_triangle_set & its,
             }
             case SUPP:
             case JUNCTION: {
-                auto mergept = find_merge_pt(node.pos, closest_node.pos,
-                                             properties.max_slope());
-                if (mergept) {
+                if (auto mergept = find_merge_pt(node.pos, closest_node.pos, properties.max_slope())) {
                     if ((*mergept - closest_node.pos).norm() > EPSILON) {
                         double R = std::max(node.R * WF, closest_node.R * WF);
                         Junction mergenode{*mergept, R};
 
                         if ((routed = builder.add_merger(node, closest_node, mergenode))) {
                             size_t new_idx = nodes.insert_junction(mergenode);
-                            auto   it = std::lower_bound(ptsqueue.begin(),
-                                                       ptsqueue.end(),
-                                                       new_idx, zcmp);
+                            auto   it      = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), new_idx, zcmp);
                             ptsqueue.insert(it, new_idx);
 
                             // Remove the connected support point from the queue
-                            it = std::lower_bound(ptsqueue.begin(),
-                                                  ptsqueue.end(),
-                                                  closest_node_id, zcmp);
-                            if (it != ptsqueue.end()) { ptsqueue.erase(it); }
+                            it = std::lower_bound(ptsqueue.begin(), ptsqueue.end(), closest_node_id, zcmp);
+                            if (it != ptsqueue.end())
+                                ptsqueue.erase(it);
+
                             nodes.remove_node(closest_node_id);
                         }
                     } else
@@ -360,7 +356,7 @@ bool build_tree(const indexed_triangle_set & its,
 
                 break;
             }
-            case NONE: ;
+            case NONE:;
             }
 
             ++closest_it;
