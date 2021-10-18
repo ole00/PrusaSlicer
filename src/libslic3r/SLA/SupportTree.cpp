@@ -146,13 +146,14 @@ public:
 
         auto hit = bridge_mesh_intersect(ex_seq, m_sm.emesh, startp, DOWN, from.R, m_sm.cfg.safety_distance_mm);//m_sm.emesh.query_ray_hit(startp, DOWN);
 
-        if (!hit.is_hit()) {
+        bool ret = std::isinf(hit.distance());
+        if (ret) {
             long pid = m_builder.add_pillar(endp, startp.z() - endp.z(), from.R);
             m_builder.add_pillar_base(pid, m_sm.cfg.base_height_mm,
                                       m_sm.cfg.base_radius_mm);
         }
 
-        return !hit.is_hit();
+        return ret;
     }
 
     bool add_mesh_bridge(const vanektree::Junction &from,
