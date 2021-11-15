@@ -1,4 +1,4 @@
-#include "SupportTreeVanek.hpp"
+#include "VanekTree.hpp"
 
 #include <numeric>
 #include <optional>
@@ -6,24 +6,24 @@
 
 #include <igl/random_points_on_mesh.h>
 
-#include "SLA/SupportTreeBuildsteps.hpp"
+#include "libslic3r/SLA/SupportTreeBuildsteps.hpp"
 #include "libslic3r/Tesselate.hpp"
 #include "libslic3r/KDTreeIndirect.hpp"
 
-namespace Slic3r { namespace sla { namespace vanektree {
+namespace Slic3r { namespace vanektree {
 
 static std::optional<Vec3f> find_merge_pt(const Vec3f &A,
                                           const Vec3f &B,
                                           float        max_slope)
 {
     Vec3f Da = (B - A).normalized(), Db = -Da;
-    auto [polar_da, azim_da] = dir_to_spheric(Da);
-    auto [polar_db, azim_db] = dir_to_spheric(Db);
+    auto [polar_da, azim_da] = sla::dir_to_spheric(Da);
+    auto [polar_db, azim_db] = sla::dir_to_spheric(Db);
     polar_da = std::max(polar_da, float(PI) - max_slope);
     polar_db = std::max(polar_db, float(PI) - max_slope);
 
-    Da = spheric_to_dir<float>(polar_da, azim_da);
-    Db = spheric_to_dir<float>(polar_db, azim_db);
+    Da = sla::spheric_to_dir<float>(polar_da, azim_da);
+    Db = sla::spheric_to_dir<float>(polar_db, azim_db);
 
     double t1 = (A.z() * Db.x() + Db.z() * B.x() - B.z() * Db.x() - Db.z() * A.x()) /
                 (Da.x() * Db.z() - Da.z() * Db.x());
@@ -73,9 +73,11 @@ static std::vector<Junction> sample_mesh(const indexed_triangle_set &its,
     ret.reserve(size_t(N));
     for (int i = 0; i < FI.size(); i++) {
         Vec3i face = its.indices[FI(i)];
-        Vec3f c    = B.row(i)(0) * its.vertices[face(0)] +
+
+        Vec3f c = B.row(i)(0) * its.vertices[face(0)] +
                   B.row(i)(1) * its.vertices[face(1)] +
                   B.row(i)(2) * its.vertices[face(2)];
+
         ret.emplace_back(c);
     }
 
@@ -116,6 +118,11 @@ inline double merge_distance(const Vec3f &a, const Vec3f &b, double bridge_slope
 
 enum PtType { SUPP, MESH, BED, JUNCTION, NONE };
 
+// Simply a queue of point IDs which will be processed by the main algo
+using SupportPointQueue = std::deque<size_t>;
+
+// A cloud of points including support points, mesh points, junction points
+// and anchor points on the bed.
 class PointCloud {
     const std::vector<Junction> &m_roots;
     std::vector<Junction> m_junctions, m_meshpoints, m_bedpoints;
@@ -128,9 +135,11 @@ class PointCloud {
     std::vector<bool> m_searchable_indices;
     size_t m_reachable_cnt;
 
-    struct CoordFn {
-        const PointCloud *self; CoordFn(PointCloud *s) : self{s} {}
-        float             operator()(size_t nodeid, size_t dim) const
+    struct CoordFn
+    {
+        const PointCloud *self;
+        CoordFn(const PointCloud *s) : self{s} {}
+        float operator()(size_t nodeid, size_t dim) const
         {
             return self->get_coord(nodeid)(int(dim));
         }
@@ -147,11 +156,22 @@ class PointCloud {
     }
 
 public:
+
+    struct ZCompareFn
+    {
+        const PointCloud *self;
+        ZCompareFn(const PointCloud *s) : self{s} {}
+        bool operator()(size_t node_a, size_t node_b) const
+        {
+            return self->get_coord(node_a).z() < self->get_coord(node_b).z();
+        }
+    };
+
     PointCloud(const indexed_triangle_set & M,
                const std::vector<Junction> &support_roots,
                const Properties &           props)
         : m_roots{support_roots}
-//        , m_meshpoints{sample_mesh(M, props.sampling_radius())}
+        , m_meshpoints{sample_mesh(M, props.sampling_radius())}
         , m_bedpoints{sample_bed(props.bed_shape(),
                                  props.ground_level(),
                                  props.sampling_radius())}
@@ -253,16 +273,11 @@ public:
                 visitor(i, get_distance(pos, i));
     }
 
-    std::deque<size_t> start_queue() const
+    SupportPointQueue start_queue() const
     {
-        std::deque<size_t> ptsqueue(m_roots.size());
+        SupportPointQueue ptsqueue(m_roots.size());
         std::iota(ptsqueue.begin(), ptsqueue.end(), I2);
-
-        auto zcmp = [this](size_t a, size_t b) {
-            return get_coord(a).z() < get_coord(b).z();
-        };
-
-        std::sort(ptsqueue.begin(), ptsqueue.end(), zcmp);
+        std::sort(ptsqueue.begin(), ptsqueue.end(), ZCompareFn{this});
 
         return ptsqueue;
     }
@@ -275,10 +290,7 @@ bool build_tree(const indexed_triangle_set & its,
 {
     PointCloud nodes(its, support_roots, properties);
 
-    std::deque<size_t> ptsqueue = nodes.start_queue();
-    auto zcmp = [&nodes](size_t a, size_t b) {
-        return nodes.get_coord(a).z() < nodes.get_coord(b).z();
-    };
+    SupportPointQueue ptsqueue = nodes.start_queue();
 
     auto report_unroutable = [&nodes, &builder] (size_t node_id) {
         switch(nodes.get_type(node_id)) {
@@ -290,6 +302,8 @@ bool build_tree(const indexed_triangle_set & its,
     };
 
     const double WF = properties.widening_factor();
+
+    auto zcmp = PointCloud::ZCompareFn{&nodes};
 
     while (!ptsqueue.empty()) {
         size_t node_id = ptsqueue.back();
@@ -369,4 +383,4 @@ bool build_tree(const indexed_triangle_set & its,
     return true;
 }
 
-}}} // namespace Slic3r::sla::vanektree
+}} // namespace Slic3r::vanektree

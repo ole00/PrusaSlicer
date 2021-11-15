@@ -8,7 +8,7 @@
 #include <libslic3r/SLA/SpatIndex.hpp>
 #include <libslic3r/SLA/SupportTreeBuilder.hpp>
 #include <libslic3r/SLA/SupportTreeBuildsteps.hpp>
-#include <libslic3r/SLA/SupportTreeVanek.hpp>
+#include <libslic3r/VanekTree/VanekTree.hpp>
 
 #include <libslic3r/MTUtils.hpp>
 #include <libslic3r/ClipperUtils.hpp>

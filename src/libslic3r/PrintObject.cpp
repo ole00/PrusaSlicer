@@ -16,6 +16,8 @@
 #include "Fill/FillAdaptive.hpp"
 #include "Format/STL.hpp"
 
+#include "VanekTree/VanekTreeFFF.hpp"
+
 #include <float.h>
 #include <string_view>
 #include <utility>
@@ -2096,8 +2098,10 @@ void PrintObject::combine_infill()
 
 void PrintObject::_generate_support_material()
 {
-    PrintObjectSupportMaterial support_material(this, m_slicing_params);
-    support_material.generate(*this);
+    build_vanek_tree_fff(*this);
+
+//    PrintObjectSupportMaterial support_material(this, m_slicing_params);
+//    support_material.generate(*this);
 }
 
 static void project_triangles_to_slabs(ConstLayerPtrsAdaptor layers, const indexed_triangle_set &custom_facets, const Transform3f &tr, bool seam, std::vector<Polygons> &out)
