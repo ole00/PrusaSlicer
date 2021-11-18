@@ -78,19 +78,6 @@ std::vector<ExPolygons> SupportTree::slice(const std::vector<float> &grid,
     return mrg;
 }
 
-static ExPolygon make_bed_poly(const indexed_triangle_set &its)
-{
-    auto bb = bounding_box(its);
-
-    BoundingBox bbcrd{scaled(to_2d(bb.min)), scaled(to_2d(bb.max))};
-    bbcrd.offset(scaled(10.));
-    Point min = bbcrd.min, max = bbcrd.max;
-    ExPolygon ret = {{min.x(), min.y()}, {max.x(), min.y()}, {max.x(), max.y()}, {min.x(), max.y()}};
-
-    return ret;
-}
-
-
 class VanekTreeBuilder: public vanektree::Builder {
     SupportTreeBuilder &m_builder;
     const SupportableMesh  &m_sm;
@@ -223,7 +210,7 @@ SupportTree::UPtr SupportTree::create(const SupportableMesh &sm,
 
         auto &its = *sm.emesh.get_triangle_mesh();
         vanektree::build_tree(its, roots, VanekTreeBuilder {*builder, sm},
-                              vanektree::Properties{}.bed_shape({make_bed_poly(its)})
+                              vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)})
                               .ground_level(builder->ground_level)
                               .max_slope(sm.cfg.bridge_slope)
                               .widening_factor(sm.cfg.pillar_widening_factor));

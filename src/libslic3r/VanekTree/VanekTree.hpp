@@ -1,6 +1,8 @@
 #ifndef SUPPORTTREEVANEK_HPP
 #define SUPPORTTREEVANEK_HPP
 
+#include "libslic3r/ExPolygon.hpp"
+#include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 
 namespace Slic3r { namespace vanektree {
@@ -93,10 +95,20 @@ public:
 };
 
 // Build the actual tree.
-// its: the input mesh
-// support_roots: the input support points
-// builder: The output interface, describes how to build the tree
-// properties: parameters of the tree
+// its:           The input mesh
+// support_roots: The input support points
+// builder:       The output interface, describes how to build the tree
+// properties:    Parameters of the tree
+//
+// Notes:
+// The original algorithm implicitly ensures that the generated tree avoids
+// the model body. This implementation uses point sampling of the mesh thus an
+// explicit check is needed if the part of the tree being inserted properly
+// avoids the model. This can be done in the builder implementation. Each
+// method can return a boolean indicating whether the given branch can or
+// cannot be inserted. If a particular path is unavailable, the algorithm
+// will try a few other paths as well. If all of them fail, one of the
+// report_unroutable_* methods will be called as a last resort.
 bool build_tree(const indexed_triangle_set & its,
                 const std::vector<Junction> &support_roots,
                 Builder &                    builder,
@@ -108,6 +120,22 @@ inline bool build_tree(const indexed_triangle_set & its,
                        const Properties &           properties = {})
 {
     return build_tree(its, support_roots, builder, properties);
+}
+
+// Helper function to derive a bed polygon only from the model bounding box.
+inline ExPolygon make_bed_poly(const indexed_triangle_set &its)
+{
+    auto bb = bounding_box(its);
+
+    BoundingBox bbcrd{scaled(to_2d(bb.min)), scaled(to_2d(bb.max))};
+    bbcrd.offset(scaled(10.));
+    Point     min = bbcrd.min, max = bbcrd.max;
+    ExPolygon ret = {{min.x(), min.y()},
+                     {max.x(), min.y()},
+                     {max.x(), max.y()},
+                     {min.x(), max.y()}};
+
+    return ret;
 }
 
 }} // namespace Slic3r::vanektree
