@@ -4,6 +4,8 @@
 #include "VanekTreeFFF.hpp"
 
 #include "SLA/SupportPointGenerator.hpp"
+#include "SLA/SupportTreeMesher.hpp"
+#include "libslic3r/TriangleMeshSlicer.hpp"
 
 #include "libslic3r/Layer.hpp"
 
@@ -71,7 +73,40 @@ public:
     {
         m_unroutable_junc.emplace_back(j);
     }
+
+    std::vector<indexed_triangle_set> generate_meshes(PrintObject &p) const;
 };
+
+std::vector<indexed_triangle_set> VanekFFFBuilder::generate_meshes(PrintObject &p) const
+{
+    constexpr size_t steps = 45;
+
+    std::vector<indexed_triangle_set> ret;
+
+    for (const Element &node : m_nodes) {
+        switch(node.ntype) {
+        case EType::Bridge: {
+            Vec3d                p1 = node.junctions[0].pos.cast<double>();
+            Vec3d                p2 = node.junctions[1].pos.cast<double>();
+            double               R1 = node.junctions[0].R;
+            double               R2 = node.junctions[1].R;
+
+            ret.emplace_back(sla::get_mesh(sla::DiffBridge{p1, p2, R1, R2}, steps));
+        }
+        case EType::GroundBridge: {
+
+        }
+        case EType::Merger: {
+
+        }
+        case EType::MeshBridge: {
+
+        }
+        }
+    }
+
+    return ret;
+}
 
 
 //// Transformation without rotation around Z and without a shift by X and Y.
@@ -119,28 +154,66 @@ static std::vector<float> get_slice_grid(const PrintObject &po)
     return ret;
 }
 
+//std::vector<Junction> create_root_points(const PrintObject          &po,
+//                                         const indexed_triangle_set &its)
+//{
+//    sla::IndexedMesh imesh{its};
+
+//    auto slices = get_slices(po);
+//    auto slice_grid = get_slice_grid(po);
+//    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
+//    supgen.execute(slices, slice_grid);
+
+//    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
+//    for (auto &sp : supgen.output())
+//        root_pts.emplace_back(sp.pos);
+//}
+
 void build_vanek_tree_fff(PrintObject &po)
 {
-    auto tr = po.trafo_centered();
+    auto layer = po.add_support_layer(1, 0, 2, 100.);
+    Polyline line;
+    line.points = {{0, 0}, {150000000, 150000000}};
 
-    indexed_triangle_set its = po.model_object()->raw_indexed_triangle_set();
-    its_transform(its, tr);
+    Flow fl = po.all_regions().front().get().flow(po, frPerimeter, 0.2);
+    layer->support_fills.append(ExtrusionPath(line, ExtrusionPath{erPerimeter, fl.mm3_per_mm(), fl.width(), fl.height()}));
 
-    sla::IndexedMesh imesh{its};
+//    auto tr = po.trafo_centered();
 
-    auto slices = get_slices(po);
-    auto slice_grid = get_slice_grid(po);
-    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
-    supgen.execute(slices, slice_grid);
+//    indexed_triangle_set its = po.model_object()->raw_indexed_triangle_set();
+//    its_transform(its, tr);
 
-    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
-    for (auto &sp : supgen.output())
-        root_pts.emplace_back(sp.pos);
+//    sla::IndexedMesh imesh{its};
 
-    VanekFFFBuilder builder;
-    auto props = vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)});
+//    auto slices = get_slices(po);
+//    auto slice_grid = get_slice_grid(po);
+//    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
+//    supgen.execute(slices, slice_grid);
 
-    vanektree::build_tree(its, root_pts, builder, props);
+//    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
+//    for (auto &sp : supgen.output())
+//        root_pts.emplace_back(sp.pos);
+
+//    VanekFFFBuilder builder;
+//    auto props = vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)});
+
+//    vanektree::build_tree(its, root_pts, builder, props);
+
+//    std::vector<indexed_triangle_set> meshes = builder.generate_meshes(po);
+//    std::vector<ExPolygons> unislices(slice_grid.size());
+
+//    for (auto &m : meshes) {
+//        std::vector<ExPolygons>  slices = slice_mesh_ex(m, slice_grid, 0);
+//        for (size_t i = 0; i < slices.size(); ++i)
+//            unislices[i].insert(unislices[i].end(), slices[i].begin(), slices[i].end());
+//    }
+
+//    for (size_t lid = 0; lid < unislices.size(); ++lid) {
+//        auto &sl = unislices[lid];
+//        sl = union_ex(sl);
+//        auto layer = po.add_support_layer(lid, 0, po.config().layer_height, slice_grid[lid]);
+//        layer->lslices = unislices[lid];
+//    }
 }
 
 } // namespace Slic3r
