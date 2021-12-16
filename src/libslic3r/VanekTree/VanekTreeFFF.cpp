@@ -5,6 +5,8 @@
 
 #include "SLA/SupportPointGenerator.hpp"
 
+#include "libslic3r/Layer.hpp"
+
 namespace Slic3r {
 
 using vanektree::Junction;
@@ -98,7 +100,21 @@ public:
 
 static std::vector<ExPolygons> get_slices(const PrintObject &po)
 {
-    std::vector<ExPolygons> ret;
+    auto ret = reserve_vector<ExPolygons>(po.layer_count());
+
+    for (const Layer *l : po.layers())
+        ret.emplace_back(l->merged(0.f));
+
+    return ret;
+}
+
+static std::vector<float> get_slice_grid(const PrintObject &po)
+{
+    auto ret = reserve_vector<float>(po.layer_count());
+
+    for (const Layer *l : po.layers()) {
+        ret.emplace_back(l->slice_z);
+    }
 
     return ret;
 }
@@ -110,10 +126,21 @@ void build_vanek_tree_fff(PrintObject &po)
     indexed_triangle_set its = po.model_object()->raw_indexed_triangle_set();
     its_transform(its, tr);
 
+    sla::IndexedMesh imesh{its};
+
+    auto slices = get_slices(po);
+    auto slice_grid = get_slice_grid(po);
+    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
+    supgen.execute(slices, slice_grid);
+
+    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
+    for (auto &sp : supgen.output())
+        root_pts.emplace_back(sp.pos);
+
     VanekFFFBuilder builder;
     auto props = vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)});
 
-    vanektree::build_tree(its, {}, builder, props);
+    vanektree::build_tree(its, root_pts, builder, props);
 }
 
 } // namespace Slic3r
