@@ -76,10 +76,10 @@ public:
         m_unroutable_junc.emplace_back(j);
     }
 
-    std::vector<indexed_triangle_set> generate_meshes(PrintObject &p) const;
+    std::vector<indexed_triangle_set> generate_meshes() const;
 };
 
-std::vector<indexed_triangle_set> VanekFFFBuilder::generate_meshes(PrintObject &p) const
+std::vector<indexed_triangle_set> VanekFFFBuilder::generate_meshes() const
 {
     constexpr size_t steps = 45;
 
@@ -118,31 +118,6 @@ std::vector<indexed_triangle_set> VanekFFFBuilder::generate_meshes(PrintObject &
 
     return ret;
 }
-
-
-//// Transformation without rotation around Z and without a shift by X and Y.
-//static Transform3d print_trafo(const ModelObject &model_object)
-//{
-//    ModelInstance &model_instance = *model_object.instances.front();
-//    Vec3d          offset         = model_instance.get_offset();
-//    Vec3d          rotation       = model_instance.get_rotation();
-//    offset(0) = 0.;
-//    offset(1) = 0.;
-//    rotation(2) = 0.;
-
-//    auto trafo = Transform3d::Identity();
-//    trafo.translate(offset);
-//    trafo.rotate(Eigen::AngleAxisd(rotation.z(), Vec3d::UnitZ()));
-//    trafo.rotate(Eigen::AngleAxisd(rotation.y(), Vec3d::UnitY()));
-//    trafo.rotate(Eigen::AngleAxisd(rotation.x(), Vec3d::UnitX()));
-//    trafo.scale(model_instance.get_scaling_factor());
-//    trafo.scale(model_instance.get_mirror());
-
-//    if (model_instance.is_left_handed())
-//        trafo = Eigen::Scaling(Vec3d(-1., 1., 1.)) * trafo;
-
-//    return trafo;
-//}
 
 static std::vector<ExPolygons> get_slices(const PrintObject &po)
 {
@@ -189,18 +164,6 @@ std::vector<Junction> create_root_points(const PrintObject          &po,
     return root_pts;
 }
 
-
-//auto sp = po.slicing_parameters();
-
-//auto layer = po.add_support_layer(1, 0, sp.first_object_layer_height, po.layers().front()->print_z);
-//Polyline line;
-//line.points = {{18000000, 18000000}, {19000000, 19000000}};
-
-//Flow fl = support_material_1st_layer_flow(&po, sp.first_object_layer_height);
-
-//ExtrusionPath ep(line, ExtrusionPath{erSupportMaterial, fl.mm3_per_mm(), fl.width(), fl.height()});
-//layer->support_fills.append(ep);
-
 void build_vanek_tree_fff(PrintObject &po)
 {
     auto tr = po.trafo_centered();
@@ -217,7 +180,7 @@ void build_vanek_tree_fff(PrintObject &po)
 
     vanektree::build_tree(its, root_pts, builder, props);
 
-    std::vector<indexed_triangle_set> meshes = builder.generate_meshes(po);
+    std::vector<indexed_triangle_set> meshes = builder.generate_meshes();
 
     indexed_triangle_set unimesh;
     for (auto &m : meshes)
