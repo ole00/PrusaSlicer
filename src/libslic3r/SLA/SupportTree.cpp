@@ -207,6 +207,9 @@ SupportTree::UPtr SupportTree::create(const SupportableMesh &sm,
         auto roots = reserve_vector<vanektree::Junction>(builder->heads().size());
         for (const auto &h : builder->heads())
             roots.emplace_back(h.junction_point().cast<float>(), h.r_back_mm);
+//        for (auto &sp : sm.pts) {
+//            roots.emplace_back(sp.pos, sm.cfg.head_back_radius_mm);
+//        }
 
         auto &its = *sm.emesh.get_triangle_mesh();
         vanektree::build_tree(its, roots, VanekTreeBuilder {*builder, sm},

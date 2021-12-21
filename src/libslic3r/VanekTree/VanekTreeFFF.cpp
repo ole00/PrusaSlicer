@@ -5,6 +5,8 @@
 
 #include "SLA/SupportPointGenerator.hpp"
 #include "SLA/SupportTreeMesher.hpp"
+#include "SLA/SupportTreeBuilder.hpp"
+#include "SLA/SupportTreeBuildsteps.hpp"
 #include "libslic3r/TriangleMeshSlicer.hpp"
 
 #include "libslic3r/Layer.hpp"
@@ -104,9 +106,11 @@ std::vector<indexed_triangle_set> VanekFFFBuilder::generate_meshes(PrintObject &
             double  R3 = node.junctions[2].R;
             ret.emplace_back(sla::get_mesh(sla::DiffBridge{p1, p3, R1, R3}, steps));
             ret.emplace_back(sla::get_mesh(sla::DiffBridge{p2, p3, R2, R3}, steps));
+            ret.emplace_back(sla::get_mesh(sla::Junction{p3, R3}, steps));
             break;
         }
         case EType::MeshBridge: {
+            ret.emplace_back(sla::get_mesh(sla::DiffBridge{p1, p2, R1, R2}, steps));
             break;
         }
         }
@@ -161,20 +165,29 @@ static std::vector<float> get_slice_grid(const PrintObject &po)
     return ret;
 }
 
-//std::vector<Junction> create_root_points(const PrintObject          &po,
-//                                         const indexed_triangle_set &its)
-//{
-//    sla::IndexedMesh imesh{its};
+std::vector<Junction> create_root_points(const PrintObject          &po,
+                                         const indexed_triangle_set &its)
+{
+    sla::IndexedMesh imesh{its};
 
-//    auto slices = get_slices(po);
-//    auto slice_grid = get_slice_grid(po);
-//    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
-//    supgen.execute(slices, slice_grid);
+    auto slices = get_slices(po);
+    auto slice_grid = get_slice_grid(po);
+    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
+    supgen.execute(slices, slice_grid);
 
-//    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
-//    for (auto &sp : supgen.output())
-//        root_pts.emplace_back(sp.pos);
-//}
+    sla::SupportTreeConfig stcfg;
+    sla::SupportableMesh sm{imesh, supgen.output(), stcfg};
+
+    auto builder = make_unique<sla::SupportTreeBuilder>();
+    sla::SupportTreeBuildsteps bsteps{*builder, sm};
+    bsteps.filter();
+
+    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
+    for (const auto &h : builder->heads())
+        root_pts.emplace_back(h.junction_point().cast<float>(), h.r_back_mm);
+
+    return root_pts;
+}
 
 
 //auto sp = po.slicing_parameters();
@@ -195,41 +208,30 @@ void build_vanek_tree_fff(PrintObject &po)
     indexed_triangle_set its = po.model_object()->raw_indexed_triangle_set();
     its_transform(its, tr);
 
-    sla::IndexedMesh imesh{its};
-
-    auto slices = get_slices(po);
+    auto root_pts = create_root_points(po, its);
     auto slice_grid = get_slice_grid(po);
-    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
-    supgen.execute(slices, slice_grid);
-
-    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
-    for (auto &sp : supgen.output())
-        root_pts.emplace_back(sp.pos, 0.5);
 
     VanekFFFBuilder builder;
-    auto props = vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)});
+    auto props = vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)})
+                                        .widening_factor(1.2);
 
     vanektree::build_tree(its, root_pts, builder, props);
 
     std::vector<indexed_triangle_set> meshes = builder.generate_meshes(po);
-    std::vector<ExPolygons> unislices(slice_grid.size());
 
-    for (auto &m : meshes) {
-        std::vector<ExPolygons>  slices = slice_mesh_ex(m, slice_grid, 0.1);
-        for (size_t i = 0; i < slices.size(); ++i)
-            unislices[i].insert(unislices[i].end(), slices[i].begin(), slices[i].end());
-    }
+    indexed_triangle_set unimesh;
+    for (auto &m : meshes)
+        its_merge(unimesh, m);
 
+    std::vector<ExPolygons> unislices = slice_mesh_ex(unimesh, slice_grid, 0.1);
     auto sp = po.slicing_parameters();
 
     for (size_t lid = 1; lid < unislices.size(); ++lid) {
         auto &sl = unislices[lid];
-        sl = union_ex(sl);
-
         auto layer = po.add_support_layer(1, 0, sp.layer_height, po.layers()[lid]->print_z);
         Flow fl = support_material_flow(&po, sp.first_object_layer_height);
-        if (!sl.empty()) {
-            ExtrusionPath ep(Polyline{sl.front().contour.points}, ExtrusionPath{erSupportMaterial, fl.mm3_per_mm(), fl.width(), fl.height()});
+        for (const ExPolygon &p : sl) {
+            ExtrusionPath ep(Polyline{p.contour.points}, ExtrusionPath{erSupportMaterial, fl.mm3_per_mm(), fl.width(), fl.height()});
             layer->support_fills.append(ep);
         }
     }
