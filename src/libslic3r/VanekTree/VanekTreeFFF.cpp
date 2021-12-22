@@ -164,6 +164,29 @@ std::vector<Junction> create_root_points(const PrintObject          &po,
     return root_pts;
 }
 
+static ExtrusionPaths expolys_to_extrusions(const ExPolygons &expolys, const Flow &fl)
+{
+    ExtrusionPaths extrusions;
+    size_t count = std::accumulate(expolys.begin(), expolys.end(), size_t(0),
+                                   [](size_t s, auto &p) {
+                                       return s + 1 + p.holes.size();
+                                   });
+
+    extrusions.reserve(count);
+
+    for (const auto &expoly : expolys) {
+        Polyline path{expoly.contour.points};
+        if (!path.empty())
+            path.points.emplace_back(expoly.contour.points.front());
+
+        extrusions.emplace_back(path,
+                                ExtrusionPath{erSupportMaterial, fl.mm3_per_mm(),
+                                              fl.width(), fl.height()});
+    }
+
+    return extrusions;
+}
+
 void build_vanek_tree_fff(PrintObject &po)
 {
     auto tr = po.trafo_centered();
@@ -189,14 +212,19 @@ void build_vanek_tree_fff(PrintObject &po)
     std::vector<ExPolygons> unislices = slice_mesh_ex(unimesh, slice_grid, 0.1);
     auto sp = po.slicing_parameters();
 
+    if (!unislices.empty()) {
+        auto &sl = unislices.front();
+        Flow fl = support_material_1st_layer_flow(&po, sp.first_object_layer_height);
+        auto  layer = po.add_support_layer(0, 0, sp.first_object_layer_height,
+                                           po.layers().front()->print_z);
+        layer->support_fills.append(expolys_to_extrusions(sl, fl));
+    }
+
     for (size_t lid = 1; lid < unislices.size(); ++lid) {
         auto &sl = unislices[lid];
         auto layer = po.add_support_layer(1, 0, sp.layer_height, po.layers()[lid]->print_z);
-        Flow fl = support_material_flow(&po, sp.first_object_layer_height);
-        for (const ExPolygon &p : sl) {
-            ExtrusionPath ep(Polyline{p.contour.points}, ExtrusionPath{erSupportMaterial, fl.mm3_per_mm(), fl.width(), fl.height()});
-            layer->support_fills.append(ep);
-        }
+        Flow fl = support_material_flow(&po, sp.layer_height);
+        layer->support_fills.append(expolys_to_extrusions(sl, fl));
     }
 }
 
