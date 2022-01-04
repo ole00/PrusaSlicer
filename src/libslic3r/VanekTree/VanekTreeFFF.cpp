@@ -140,28 +140,40 @@ static std::vector<float> get_slice_grid(const PrintObject &po)
     return ret;
 }
 
-std::vector<Junction> create_root_points(const PrintObject          &po,
+static sla::SupportTreeConfig get_default_sla_spconfig() {
+    sla::SupportTreeConfig cfg;
+
+    cfg.head_front_radius_mm = 0.2;
+    cfg.head_penetration_mm = 0.4;
+    cfg.head_width_mm = 3.0;
+    cfg.head_back_radius_mm = 0.5;
+    cfg.head_fallback_radius_mm = 0.5 * 0.6;
+    cfg.bridge_slope = PI / 4;
+
+    return cfg;
+}
+
+std::vector<sla::Head> create_root_points(const PrintObject          &po,
                                          const indexed_triangle_set &its)
 {
     sla::IndexedMesh imesh{its};
 
     auto slices = get_slices(po);
     auto slice_grid = get_slice_grid(po);
-    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, {}, []{}, [](int) {}};
+    sla::SupportTreeConfig stcfg = get_default_sla_spconfig();
+    stcfg.head_width_mm = 2.;
+    sla::SupportPointGenerator::Config spgen_cfg;
+    spgen_cfg.head_diameter = 2 * stcfg.head_front_radius_mm;
+    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, spgen_cfg, []{}, [](int) {}};
     supgen.execute(slices, slice_grid);
 
-    sla::SupportTreeConfig stcfg;
     sla::SupportableMesh sm{imesh, supgen.output(), stcfg};
 
     auto builder = make_unique<sla::SupportTreeBuilder>();
     sla::SupportTreeBuildsteps bsteps{*builder, sm};
     bsteps.filter();
 
-    auto root_pts = reserve_vector<vanektree::Junction>(supgen.output().size());
-    for (const auto &h : builder->heads())
-        root_pts.emplace_back(h.junction_point().cast<float>(), h.r_back_mm);
-
-    return root_pts;
+    return builder->heads();
 }
 
 static ExtrusionPaths expolys_to_extrusions(const ExPolygons &expolys, const Flow &fl)
@@ -194,12 +206,16 @@ void build_vanek_tree_fff(PrintObject &po)
     indexed_triangle_set its = po.model_object()->raw_indexed_triangle_set();
     its_transform(its, tr);
 
-    auto root_pts = create_root_points(po, its);
+    auto root_heads = create_root_points(po, its);
     auto slice_grid = get_slice_grid(po);
 
     VanekFFFBuilder builder;
     auto props = vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)})
-                                        .widening_factor(1.2);
+                                        .widening_factor(1.);
+
+    auto root_pts = reserve_vector<vanektree::Junction>(root_heads.size());
+    for (const auto &h : root_heads)
+        root_pts.emplace_back(h.junction_point().cast<float>(), h.r_back_mm);
 
     vanektree::build_tree(its, root_pts, builder, props);
 
@@ -208,6 +224,10 @@ void build_vanek_tree_fff(PrintObject &po)
     indexed_triangle_set unimesh;
     for (auto &m : meshes)
         its_merge(unimesh, m);
+
+    for (auto &head : root_heads) {
+        its_merge(unimesh, sla::get_mesh(head, 45));
+    }
 
     std::vector<ExPolygons> unislices = slice_mesh_ex(unimesh, slice_grid, 0.1);
     auto sp = po.slicing_parameters();
