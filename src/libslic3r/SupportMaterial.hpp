@@ -169,7 +169,7 @@ public:
 	// with extrusion paths and islands filled in for each support layer.
 	void 		generate(PrintObject &object);
 
-private:
+//private:
 	std::vector<Polygons> buildplate_covered(const PrintObject &object) const;
 
 	// Generate top contact layers supporting overhangs.

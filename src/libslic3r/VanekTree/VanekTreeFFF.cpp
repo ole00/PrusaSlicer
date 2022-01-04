@@ -9,6 +9,8 @@
 #include "SLA/SupportTreeBuildsteps.hpp"
 #include "libslic3r/TriangleMeshSlicer.hpp"
 
+#include "libslic3r/SupportMaterial.hpp"
+
 #include "libslic3r/Layer.hpp"
 
 namespace Slic3r {
@@ -156,18 +158,41 @@ static sla::SupportTreeConfig get_default_sla_spconfig() {
 std::vector<sla::Head> create_root_points(const PrintObject          &po,
                                          const indexed_triangle_set &its)
 {
+    PrintObjectSupportMaterial posupm{&po, po.slicing_parameters()};
+
+    PrintObjectSupportMaterial::MyLayerStorage layers;
+    PrintObjectSupportMaterial::MyLayersPtr top_contacts = posupm.top_contact_layers(po, {}, layers);
+
     sla::IndexedMesh imesh{its};
 
     auto slices = get_slices(po);
     auto slice_grid = get_slice_grid(po);
     sla::SupportTreeConfig stcfg = get_default_sla_spconfig();
     stcfg.head_width_mm = 2.;
-    sla::SupportPointGenerator::Config spgen_cfg;
-    spgen_cfg.head_diameter = 2 * stcfg.head_front_radius_mm;
-    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, spgen_cfg, []{}, [](int) {}};
-    supgen.execute(slices, slice_grid);
 
-    sla::SupportableMesh sm{imesh, supgen.output(), stcfg};
+//    sla::SupportPointGenerator::Config spgen_cfg;
+//    spgen_cfg.head_diameter = 2 * stcfg.head_front_radius_mm;
+//    sla::SupportPointGenerator supgen{imesh, slices, slice_grid, spgen_cfg, []{}, [](int) {}};
+//    supgen.execute(slices, slice_grid);
+    sla::SupportPoints suppts;
+
+    std::random_device rd;
+    std::mt19937 rng(rd());
+
+    for (auto &contact : top_contacts) {
+        if (contact->contact_polygons) {
+            auto expolys =  to_expolygons(*contact->contact_polygons);
+            for (auto &p : expolys) {
+                auto pts = sla::sample_expolygon(p, 0.1f, rng);
+                for (const Vec2f &p : pts)
+                    suppts.emplace_back(to_3d(p, float(contact->print_z)), stcfg.head_front_radius_mm);
+            }
+        }
+
+    }
+
+
+    sla::SupportableMesh sm{imesh, suppts, stcfg};
 
     auto builder = make_unique<sla::SupportTreeBuilder>();
     sla::SupportTreeBuildsteps bsteps{*builder, sm};
@@ -211,7 +236,7 @@ void build_vanek_tree_fff(PrintObject &po)
 
     VanekFFFBuilder builder;
     auto props = vanektree::Properties{}.bed_shape({vanektree::make_bed_poly(its)})
-                                        .widening_factor(1.);
+                                        .widening_factor(1.05);
 
     auto root_pts = reserve_vector<vanektree::Junction>(root_heads.size());
     for (const auto &h : root_heads)
