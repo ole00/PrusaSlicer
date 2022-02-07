@@ -16,6 +16,16 @@
 namespace Slic3r {
 namespace GUI {
 
+void MeshClipper::set_behaviour(bool fill_cut, double contour_width)
+{
+    if (fill_cut != m_fill_cut || contour_width != m_contour_width)
+        m_triangles_valid = false;
+    m_fill_cut = fill_cut;
+    m_contour_width = contour_width;
+}
+
+
+
 void MeshClipper::set_plane(const ClippingPlane& plane)
 {
     if (m_plane != plane) {
@@ -40,7 +50,6 @@ void MeshClipper::set_mesh(const TriangleMesh& mesh)
     if (m_mesh != &mesh) {
         m_mesh = &mesh;
         m_triangles_valid = false;
-        m_triangles2d.resize(0);
     }
 }
 
@@ -49,7 +58,6 @@ void MeshClipper::set_negative_mesh(const TriangleMesh& mesh)
     if (m_negative_mesh != &mesh) {
         m_negative_mesh = &mesh;
         m_triangles_valid = false;
-        m_triangles2d.resize(0);
     }
 }
 
@@ -60,7 +68,6 @@ void MeshClipper::set_transformation(const Geometry::Transformation& trafo)
     if (! m_trafo.get_matrix().isApprox(trafo.get_matrix())) {
         m_trafo = trafo;
         m_triangles_valid = false;
-        m_triangles2d.resize(0);
     }
 }
 
@@ -70,9 +77,18 @@ void MeshClipper::render_cut()
 {
     if (! m_triangles_valid)
         recalculate_triangles();
-
     if (m_vertex_array.has_VBOs())
         m_vertex_array.render();
+}
+
+
+
+void MeshClipper::render_contour()
+{
+    if (! m_triangles_valid)
+        recalculate_triangles();
+    if (m_vertex_array_expanded.has_VBOs())
+        m_vertex_array_expanded.render();
 }
 
 
@@ -157,19 +173,38 @@ void MeshClipper::recalculate_triangles()
         }
     }
 
-    m_triangles2d = triangulate_expolygons_2f(expolys, m_trafo.get_matrix().matrix().determinant() < 0.);
-
     tr.pretranslate(0.001 * m_plane.get_normal().normalized()); // to avoid z-fighting
 
+
+    std::vector<Vec2f> triangles2d = m_fill_cut
+            ? triangulate_expolygons_2f(expolys, m_trafo.get_matrix().matrix().determinant() < 0.)
+            : std::vector<Vec2f>();
     m_vertex_array.release_geometry();
-    for (auto it=m_triangles2d.cbegin(); it != m_triangles2d.cend(); it=it+3) {
+    for (auto it=triangles2d.cbegin(); it != triangles2d.cend(); it=it+3) {
         m_vertex_array.push_geometry(tr * Vec3d((*(it+0))(0), (*(it+0))(1), height_mesh), up);
         m_vertex_array.push_geometry(tr * Vec3d((*(it+1))(0), (*(it+1))(1), height_mesh), up);
         m_vertex_array.push_geometry(tr * Vec3d((*(it+2))(0), (*(it+2))(1), height_mesh), up);
-        const size_t idx = it - m_triangles2d.cbegin();
+        const size_t idx = it - triangles2d.cbegin();
         m_vertex_array.push_triangle(idx, idx+1, idx+2);
     }
     m_vertex_array.finalize_geometry(true);
+
+
+    triangles2d = {};
+    if (m_contour_width != 0.) {
+        ExPolygons expolys_exp = offset_ex(expolys, scale_(m_contour_width));
+        expolys_exp = diff_ex(expolys_exp, expolys);
+        triangles2d = triangulate_expolygons_2f(expolys_exp, m_trafo.get_matrix().matrix().determinant() < 0.);
+    }
+    m_vertex_array_expanded.release_geometry();
+    for (auto it=triangles2d.cbegin(); it != triangles2d.cend(); it=it+3) {
+        m_vertex_array_expanded.push_geometry(tr * Vec3d((*(it+0))(0), (*(it+0))(1), height_mesh), up);
+        m_vertex_array_expanded.push_geometry(tr * Vec3d((*(it+1))(0), (*(it+1))(1), height_mesh), up);
+        m_vertex_array_expanded.push_geometry(tr * Vec3d((*(it+2))(0), (*(it+2))(1), height_mesh), up);
+        const size_t idx = it - triangles2d.cbegin();
+        m_vertex_array_expanded.push_triangle(idx, idx+1, idx+2);
+    }
+    m_vertex_array_expanded.finalize_geometry(true);
 
     m_triangles_valid = true;
 }
