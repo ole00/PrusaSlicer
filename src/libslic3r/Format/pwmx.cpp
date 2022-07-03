@@ -6,6 +6,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
+#include <vector>
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/log/trivial.hpp>
@@ -15,19 +16,31 @@
 #define TAG_HEADER "HEADER\0\0\0\0\0\0"
 #define TAG_PREVIEW "PREVIEW\0\0\0\0\0"
 #define TAG_LAYERS "LAYERDEF\0\0\0\0"
+#define TAG_EXTRA   "EXTRA\0\0\0\0\0\0\0"
+#define TAG_MACHINE "MACHINE\0\0\0\0\0"
 
 #define CFG_LIFT_DISTANCE "LIFT_DISTANCE"
 #define CFG_LIFT_SPEED "LIFT_SPEED"
 #define CFG_RETRACT_SPEED "RETRACT_SPEED"
+
+#define CFG_EXTRA_LIFT_DISTANCE "EXTRA_LIFT_DISTANCE"
+#define CFG_EXTRA_LIFT_SPEED "EXTRA_LIFT_SPEED"
+#define CFG_EXTRA_RETRACT_SPEED "EXTRA_RETRACT_SPEED"
+
+
 #define CFG_DELAY_BEFORE_EXPOSURE "DELAY_BEFORE_EXPOSURE"
 #define CFG_BOTTOM_LIFT_SPEED "BOTTOM_LIFT_SPEED"
 #define CFG_BOTTOM_LIFT_DISTANCE "BOTTOM_LIFT_DISTANCE"
+#define CFG_EXPORT_VERSION "PRINTER_EXPORT_PWM_VER"
+#define CFG_EXPORT_MACHINE_NAME "PRINTER_EXPORT_PWM_NAME"
+
 
 #define PREV_W 224
 #define PREV_H 168
 #define PREV_DPI 42
 
 #define LAYER_SIZE_ESTIMATE (32 * 1024)
+
 
 namespace Slic3r {
 
@@ -98,6 +111,21 @@ typedef struct pwmx_format_intro
     std::uint32_t image_data_offset;
 } pwmx_format_intro;
 
+typedef struct pwmx_format_intro_v516
+{
+    char          tag[12];
+    std::uint32_t version;  // value 1
+    std::uint32_t area_num; // unknown - usually 4
+    std::uint32_t header_data_offset;
+    std::float_t  intro24; // unknown - usually 0
+    std::uint32_t preview_data_offset;
+    std::float_t  intro32; // preview unknown data
+    std::uint32_t layer_data_offset;
+    std::uint32_t extra_data_offset;
+    std::uint32_t machine_data_offset;
+    std::uint32_t image_data_offset;
+} pwmx_format_intro_v516;
+
 typedef struct pwmx_format_header
 {
     char          tag[12];
@@ -125,6 +153,39 @@ typedef struct pwmx_format_header
 
 } pwmx_format_header;
 
+typedef struct pwmx_format_extra
+{
+    char          tag[12];
+    std::uint32_t extra0;
+    std::uint32_t extra4;
+    std::float_t  lift_distance1_mm;
+    std::float_t  lift_speed1_mms;
+    std::float_t  retract_speed1_mms;
+    std::float_t  lift_distance2_mm;
+    std::float_t  lift_speed2_mms;
+    std::float_t  retract_speed2_mms;
+    std::uint32_t extra32;
+    std::float_t  lift_distance3_mm;
+    std::float_t  lift_speed3_mms;
+    std::float_t  retract_speed3_mms;
+    std::float_t  lift_distance4_mm;
+    std::float_t  lift_speed4_mms;
+    std::float_t  retract_speed4_mms;
+} pwmx_format_extra;
+
+typedef struct pwmx_format_machine
+{
+    char          tag[12];
+    std::uint32_t payload_size;
+    char          name[96];
+    char          image_format[24];
+    std::float_t  volume_x;
+    std::float_t  volume_y;
+    std::float_t  volume_z;
+    std::uint32_t version;
+    std::uint32_t machine140;
+} pwmx_format_machine;
+
 typedef struct pwmx_format_preview
 {
     char          tag[12];
@@ -135,6 +196,11 @@ typedef struct pwmx_format_preview
     // raw image data in BGR565 format
      std::uint8_t pixels[PREV_W * PREV_H * 2];
 } pwmx_format_preview;
+
+typedef struct pwmx_format_preview_unknown_v516
+{
+    std::uint32_t unknown[7];
+} pwmx_format_preview_unknown_v516;
 
 typedef struct pwmx_format_layers_header
 {
@@ -213,6 +279,37 @@ int get_cfg_value_i(const DynamicConfig &cfg,
     return def;
 }
 
+std::string get_vec_value_s(const std::vector<std::string> &items,
+                            const std::string   &key,
+                            const std::string   &def = "")
+{
+    for (size_t i = 0; i < items.size(); i++) {
+        int index = items[i].find(key);
+        if (0 == index) {
+            std::vector<std::string> tokens(2);
+            boost::split(tokens, items[i], boost::is_any_of("\t ="), boost::token_compress_on);
+            if (2 != tokens.size()) { // only a key/value pair is allowed
+	            throw Slic3r::IOError("invalid config value of key: " + key);
+            }
+            std::string result = tokens[1];
+            boost::replace_all(result, "__", " ");
+            return result;
+        }
+    }
+    return def;
+}
+
+int get_vec_value_i(const std::vector<std::string> &items,
+                    const std::string   &key,
+                    int   def = 0)
+{
+    std::string result = get_vec_value_s(items, key);
+    if (result.empty()) {
+        return def;
+    }
+    return std::stoi(result.c_str());
+}
+
 template<class T> void crop_value(T &val, T val_min, T val_max)
 {
     if (val < val_min) {
@@ -223,13 +320,16 @@ template<class T> void crop_value(T &val, T val_min, T val_max)
 }
 
 void fill_preview(pwmx_format_preview &p,
+                  pwmx_format_preview_unknown_v516 &pu,
                   pwmx_format_misc   &/*m*/,
-                  const ThumbnailsList &thumbnails)
+                  const ThumbnailsList &thumbnails,
+                  bool v516)
 {
 
     p.preview_w    = PREV_W;
     p.preview_h    = PREV_H;
     p.preview_dpi  = PREV_DPI;
+    //v1 calculates the payload size incorrectly
     p.payload_size = sizeof(p) - sizeof(p.tag) - sizeof(p.payload_size);
                      
     std::memset(p.pixels, 0 , sizeof(p.pixels));
@@ -264,8 +364,37 @@ void fill_preview(pwmx_format_preview &p,
             }
         }
     }
+
+    if (v516) {
+        // payload size now fixed
+        p.payload_size = sizeof(p);
+        // fill unknown preview data with a knownn contents (text or bg palette perhaps?)
+        pu.unknown[0] = 0;
+        pu.unknown[1] = 0x10;
+        pu.unknown[2] = 0xFFFFFFFF;
+        pu.unknown[3] = 0xFFFFFFFF;
+        pu.unknown[4] = 0xFFFFFFFF;
+        pu.unknown[5] = 0xFFFFFFFF;
+        pu.unknown[6] = 0;
+    }
 }
 
+int get_format_version(const SLAPrint &print)
+{
+    auto        &cfg      = print.full_print_config();
+    auto        print_opt = cfg.option("printer_notes");
+    std::string pnotes    = print_opt? cfg.option("printer_notes")->serialize() : "";
+    // create a vector of strings from the printer notes delimited by new line characters
+    std::vector<std::string> pnotes_items;
+
+    // sanitize the string config
+    boost::replace_all(pnotes, "\\n", "\n");
+    boost::replace_all(pnotes, "\\r", "\r");
+    boost::split(pnotes_items, pnotes, boost::is_any_of("\n\r"), boost::token_compress_on);
+
+    int result = get_vec_value_i(pnotes_items, CFG_EXPORT_VERSION, 1);
+    return result;
+}
 
 void fill_header(pwmx_format_header &h,
                  pwmx_format_misc   &m,
@@ -301,6 +430,13 @@ void fill_header(pwmx_format_header &h,
     }
     h.res_x     = get_cfg_value_i(cfg, "display_pixels_x");
     h.res_y     = get_cfg_value_i(cfg, "display_pixels_y");
+
+    auto         dispo_opt = cfg.option("display_orientation");
+    std::string  dispo  = dispo_opt? cfg.option("display_orientation")->serialize() : "l";
+    if (dispo == "portrait") {
+        std::swap(h.res_x, h.res_y);
+    }
+
     bottle_weight_g = get_cfg_value_f(cfg, "bottle_weight") * 1000.0f;
     bottle_volume_ml = get_cfg_value_f(cfg, "bottle_volume");
     bottle_cost = get_cfg_value_f(cfg, "bottle_cost");
@@ -351,7 +487,113 @@ void fill_header(pwmx_format_header &h,
 
 
     h.payload_size  = sizeof(h) - sizeof(h.tag) - sizeof(h.payload_size);
-    h.pixel_size_um = 50;
+
+    std::float_t display_w = get_cfg_value_f(cfg, "display_width", 100) * 1000;
+    if (dispo == "portrait") {
+        h.pixel_size_um = (int)((display_w / h.res_y) + 0.5f);
+    } else {
+        h.pixel_size_um = (int)((display_w / h.res_x) + 0.5f);
+    }
+}
+
+void fill_extra(pwmx_format_extra  &e,
+                const SLAPrint     &print)
+{
+    auto        &cfg     = print.full_print_config();
+    auto         mat_opt = cfg.option("material_notes");
+    std::string  mnotes  = mat_opt? cfg.option("material_notes")->serialize() : "";
+    // create a config parser from the material notes
+    Slic3r::PwmxFormatDynamicConfig mat_cfg;
+
+    // sanitize the string config
+    boost::replace_all(mnotes, "\\n", "\n");
+    boost::replace_all(mnotes, "\\r", "\r");
+    mat_cfg.load_from_ini_string(mnotes,
+                                 ForwardCompatibilitySubstitutionRule::Enable);
+
+    // unknown fields - the values from TEST.pwma are used
+    e.extra0 = 24;
+    e.extra4 = 2;
+    e.extra32 = 2;
+
+    // Currently it is unknown when (during printing) these values are applied
+    // and which values (layer section or extra section) have higher priority.
+    // These configurtion options can be set in material notes.
+
+    e.lift_distance1_mm  = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_DISTANCE "1", 1.5f);;
+    e.lift_speed1_mms    = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_SPEED "1", 2.0f);;
+    e.retract_speed1_mms = get_cfg_value_f(mat_cfg, CFG_EXTRA_RETRACT_SPEED "1", 3.0f);;
+
+    e.lift_distance2_mm  = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_DISTANCE "2", 4.5f);;
+    e.lift_speed2_mms    = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_SPEED "2", 4.0f);;
+    e.retract_speed2_mms = get_cfg_value_f(mat_cfg, CFG_EXTRA_RETRACT_SPEED "2", 6.0f);;
+
+    e.lift_distance3_mm  = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_DISTANCE "3", 1.5f);;
+    e.lift_speed3_mms    = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_SPEED "3", 2.0f);;
+    e.retract_speed3_mms = get_cfg_value_f(mat_cfg, CFG_EXTRA_RETRACT_SPEED "3", 3.0f);;
+
+    e.lift_distance4_mm  = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_DISTANCE "4", 4.0f);;
+    e.lift_speed4_mms    = get_cfg_value_f(mat_cfg, CFG_EXTRA_LIFT_SPEED "4", 2.0f);;
+    e.retract_speed4_mms = get_cfg_value_f(mat_cfg, CFG_EXTRA_RETRACT_SPEED "4", 3.0f);;
+
+    // ensure sane values are set
+    crop_value(e.lift_distance1_mm, 0.1f, 100.0f);
+    crop_value(e.lift_distance2_mm, 0.1f, 100.0f);
+    crop_value(e.lift_distance3_mm, 0.1f, 100.0f);
+    crop_value(e.lift_distance4_mm, 0.1f, 100.0f);
+
+    crop_value(e.lift_speed1_mms, 0.1f, 20.0f);
+    crop_value(e.lift_speed2_mms, 0.1f, 20.0f);
+    crop_value(e.lift_speed3_mms, 0.1f, 20.0f);
+    crop_value(e.lift_speed4_mms, 0.1f, 20.0f);
+
+    crop_value(e.retract_speed1_mms, 0.1f, 20.0f);
+    crop_value(e.retract_speed2_mms, 0.1f, 20.0f);
+    crop_value(e.retract_speed3_mms, 0.1f, 20.0f);
+    crop_value(e.retract_speed4_mms, 0.1f, 20.0f);
+}
+
+void fill_machine(pwmx_format_machine &m,
+                  const SLAPrint      &print,
+                  int                 version)
+{
+    auto        &cfg     = print.full_print_config();
+    auto         mat_opt = cfg.option("material_notes");
+    std::string  mnotes  = mat_opt? cfg.option("material_notes")->serialize() : "";
+    // create a config parser from the material notes
+    Slic3r::PwmxFormatDynamicConfig mat_cfg;
+    auto        print_opt = cfg.option("printer_notes");
+    std::string pnotes    = print_opt? cfg.option("printer_notes")->serialize() : "";
+    // create a vector of strings from the printer notes
+    std::vector<std::string> pnotes_items;
+
+    // sanitize the  material notes
+    boost::replace_all(mnotes, "\\n", "\n");
+    boost::replace_all(mnotes, "\\r", "\r");
+    mat_cfg.load_from_ini_string(mnotes,
+                                 ForwardCompatibilitySubstitutionRule::Enable);
+
+    // sanitize the printer notes
+    boost::replace_all(pnotes, "\\n", "\n");
+    boost::replace_all(pnotes, "\\r", "\r");
+    boost::split(pnotes_items, pnotes, boost::is_any_of("\n\r"), boost::token_compress_on);
+
+    std::string name = get_vec_value_s(pnotes_items, CFG_EXPORT_MACHINE_NAME, "Photon Mono");
+    std::strncpy((char*) m.name, name.c_str(), sizeof(m.name));
+    std::strncpy((char*) m.image_format, "pw0Img", sizeof(m.image_format));
+
+    m.volume_x = get_cfg_value_f(cfg, "display_width");
+    m.volume_y = get_cfg_value_f(cfg, "display_height");
+    m.volume_z = get_cfg_value_f(cfg, "max_print_height", 160);
+    m.version  = version;
+    m.machine140 = 0x634701; // unknown purpose (found in  TEST.pwma  - Photon Mono 4K)
+    m.payload_size = sizeof(m);
+
+    auto dispo_opt = cfg.option("display_orientation");
+    std::string dispo = dispo_opt? cfg.option("display_orientation")->serialize() : "l";
+    if (dispo == "portrait") {
+        std::swap(m.volume_x, m.volume_y);
+    }
 }
 
 } // namespace
@@ -413,7 +655,7 @@ static void pwmx_write_float(std::ofstream &out, std::float_t val)
     pwmx_write_int32(out, *f);
 }
 
-static void pwmx_write_intro(std::ofstream &out, pwmx_format_intro &i)
+static void pwmx_write_intro(std::ofstream &out, pwmx_format_intro_v516 &i, bool v516)
 {
     out.write(TAG_INTRO, sizeof(i.tag));
     pwmx_write_int32(out, i.version);
@@ -423,11 +665,16 @@ static void pwmx_write_intro(std::ofstream &out, pwmx_format_intro &i)
     pwmx_write_int32(out, i.preview_data_offset);
     pwmx_write_int32(out, i.intro32);
     pwmx_write_int32(out, i.layer_data_offset);
-    pwmx_write_int32(out, i.intro40);
+    if (v516) {
+        pwmx_write_int32(out, i.extra_data_offset);
+        pwmx_write_int32(out, i.machine_data_offset);
+    } else {
+        pwmx_write_int32(out, 0);
+    }
     pwmx_write_int32(out, i.image_data_offset);
 }
 
-static void pwmx_write_header(std::ofstream &out, pwmx_format_header &h)
+static void pwmx_write_header(std::ofstream &out, pwmx_format_header &h, bool v516)
 {
     out.write(TAG_HEADER, sizeof(h.tag));
     pwmx_write_int32(out, h.payload_size);
@@ -451,9 +698,15 @@ static void pwmx_write_header(std::ofstream &out, pwmx_format_header &h)
     pwmx_write_int32(out, h.print_time_s);
     pwmx_write_int32(out, h.transition_layer_count);
     pwmx_write_int32(out, h.unknown);
+    if (v516) {
+        pwmx_write_int32(out, 0); //extra padding
+    }
 }
 
-static void pwmx_write_preview(std::ofstream &out, pwmx_format_preview &p)
+static void pwmx_write_preview(std::ofstream                    &out,
+                               pwmx_format_preview              &p,
+                               pwmx_format_preview_unknown_v516 &pu,
+                               bool v516)
 {
     out.write(TAG_PREVIEW, sizeof(p.tag));
     pwmx_write_int32(out, p.payload_size);
@@ -461,6 +714,49 @@ static void pwmx_write_preview(std::ofstream &out, pwmx_format_preview &p)
     pwmx_write_int32(out, p.preview_dpi);
     pwmx_write_int32(out, p.preview_h);
     out.write((const char*) p.pixels, sizeof(p.pixels));
+
+    if (v516) {
+        int max = sizeof(pu) / sizeof(std::uint32_t);
+        for (int i = 0; i < max; i++) {
+            pwmx_write_int32(out, pu.unknown[i]);
+        }
+    }
+}
+
+static void pwmx_write_extra(std::ofstream &out, pwmx_format_extra &e)
+{
+    out.write(TAG_EXTRA, sizeof(e.tag));
+    pwmx_write_int32(out, e.extra0);
+
+    pwmx_write_int32(out, e.extra4);
+    pwmx_write_float(out, e.lift_distance1_mm);
+    pwmx_write_float(out, e.lift_speed1_mms);
+    pwmx_write_float(out, e.retract_speed1_mms);
+    pwmx_write_float(out, e.lift_distance2_mm);
+    pwmx_write_float(out, e.lift_speed2_mms);
+    pwmx_write_float(out, e.retract_speed2_mms);
+
+    pwmx_write_int32(out, e.extra32);
+    pwmx_write_float(out, e.lift_distance3_mm);
+    pwmx_write_float(out, e.lift_speed3_mms);
+    pwmx_write_float(out, e.retract_speed3_mms);
+    pwmx_write_float(out, e.lift_distance4_mm);
+    pwmx_write_float(out, e.lift_speed4_mms);
+    pwmx_write_float(out, e.retract_speed4_mms);
+}
+
+static void pwmx_write_machine(std::ofstream &out, pwmx_format_machine &m)
+{
+    out.write(TAG_MACHINE, sizeof(m.tag));
+    pwmx_write_int32(out, m.payload_size);
+
+    out.write(m.name, sizeof(m.name));
+    out.write(m.image_format, sizeof(m.image_format));
+    pwmx_write_float(out, m.volume_x);
+    pwmx_write_float(out, m.volume_y);
+    pwmx_write_float(out, m.volume_z);
+    pwmx_write_int32(out, m.version);
+    pwmx_write_int32(out, m.machine140);
 }
 
 static void pwmx_write_layers_header(std::ofstream &out, pwmx_format_layers_header &h)
@@ -489,33 +785,55 @@ void PwmxArchive::export_print(const std::string     fname,
 {
     std::uint32_t layer_count = m_layers.size();
 
-    pwmx_format_intro         intro = {};
+    pwmx_format_intro_v516    intro = {};
     pwmx_format_header        header = {};
     pwmx_format_preview       preview = {};
+    pwmx_format_preview_unknown_v516 preview_unknown = {};
     pwmx_format_layers_header layers_header = {};
     pwmx_format_misc          misc = {};
+    pwmx_format_extra         extra = {};
+    pwmx_format_machine       machine = {};
     std::vector<uint8_t>      layer_images;
     std::uint32_t             image_offset;
 
-    intro.version             = 1;
-    intro.area_num            = 4;
-    intro.header_data_offset  = sizeof(intro);
-    intro.preview_data_offset = sizeof(intro) + sizeof(header);
+    intro.version             = get_format_version(print);
+    const bool is_v516        = (516 == intro.version);
+
+    intro.area_num            = is_v516 ? 8 : 4;
+    intro.header_data_offset  = is_v516 ? sizeof(pwmx_format_intro_v516) : sizeof(pwmx_format_intro);
+    intro.preview_data_offset = intro.header_data_offset + sizeof(header) + (is_v516 ? 4 : 0);
     intro.layer_data_offset   = intro.preview_data_offset + sizeof(preview);
+    if (is_v516) {
+        //unknown data after preview bitmap
+        intro.intro32 = intro.layer_data_offset;
+        intro.layer_data_offset += sizeof(preview_unknown);
+    }
     intro.image_data_offset = intro.layer_data_offset +
                               sizeof(layers_header) +
                               (sizeof(pwmx_format_layer) * layer_count);
 
+    // extra section and machine section in between the layers and images
+    if (is_v516) {
+        intro.extra_data_offset = intro.image_data_offset;
+        intro.machine_data_offset = intro.extra_data_offset +  sizeof(extra);
+        intro.image_data_offset += sizeof(extra);
+        intro.image_data_offset += sizeof(machine);
+    }
+
     fill_header(header, misc, print, layer_count);
-    fill_preview(preview, misc, thumbnails);
+    fill_preview(preview, preview_unknown, misc, thumbnails, is_v516);
+    if (is_v516) {
+        fill_extra(extra, print);
+        fill_machine(machine, print, intro.version);
+    }
 
     try {
         // open the file and write the contents
         std::ofstream out;
         out.open(fname, std::ios::binary | std::ios::out | std::ios::trunc);
-        pwmx_write_intro(out, intro);
-        pwmx_write_header(out, header);
-        pwmx_write_preview(out, preview);
+        pwmx_write_intro(out, intro, is_v516);
+        pwmx_write_header(out, header, is_v516);
+        pwmx_write_preview(out, preview, preview_unknown, is_v516);
 
         layers_header.payload_size = intro.image_data_offset - intro.layer_data_offset -
                         sizeof(layers_header.tag)  - sizeof(layers_header.payload_size);
@@ -550,6 +868,11 @@ void PwmxArchive::export_print(const std::string     fname,
             std::copy(img_start, img_end, std::back_inserter(layer_images));
             i++;
         }
+        if (is_v516) {
+            pwmx_write_extra(out, extra);
+            pwmx_write_machine(out, machine);
+        }
+
         const char* img_buffer = reinterpret_cast<const char*>(layer_images.data());
         out.write(img_buffer, layer_images.size());
         out.close();
