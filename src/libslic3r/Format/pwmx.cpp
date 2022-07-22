@@ -34,6 +34,7 @@
 #define CFG_BOTTOM_LIFT_DISTANCE "BOTTOM_LIFT_DISTANCE"
 #define CFG_EXPORT_VERSION "PRINTER_EXPORT_PWM_VER"
 #define CFG_EXPORT_MACHINE_NAME "PRINTER_EXPORT_PWM_NAME"
+#define CFG_ANTIALIASING "ANTIALIASING"
 
 
 #define PREV_W 224
@@ -241,6 +242,7 @@ public:
         add(CFG_DELAY_BEFORE_EXPOSURE, coFloat);
         add(CFG_BOTTOM_LIFT_DISTANCE, coFloat);
         add(CFG_BOTTOM_LIFT_SPEED, coFloat);
+        add(CFG_ANTIALIASING, coInt);
     }
 };
 
@@ -447,12 +449,14 @@ void fill_header(pwmx_format_header &h,
     h.weight_g           = h.volume_ml * material_density;
     h.price              = (h.volume_ml * bottle_cost) /  bottle_volume_ml;
     h.price_currency     = '$';
-    h.antialiasing       = 1;
     h.per_layer_override = 0;
 
     // TODO - expose these variables to the UI rather than using material notes
     h.delay_before_exposure_s = get_cfg_value_f(mat_cfg, CFG_DELAY_BEFORE_EXPOSURE, 0.5f);
     crop_value(h.delay_before_exposure_s, 0.0f, 1000.0f);
+    
+    h.antialiasing = get_cfg_value_i(mat_cfg, CFG_ANTIALIASING, 1);
+    crop_value(h.antialiasing, (uint32_t) 0, (uint32_t) 1);
 
     h.lift_distance_mm = get_cfg_value_f(mat_cfg, CFG_LIFT_DISTANCE, 8.0f);
     crop_value(h.lift_distance_mm, 0.0f, 100.0f);
